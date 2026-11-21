@@ -27,6 +27,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file: .env.production
     environment:
       POSTGRES_USER: okra
       # POSTGRES_PASSWORD must be set in .env.production:
