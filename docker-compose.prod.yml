@@ -5,7 +5,21 @@ services:
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
     env_file: .env.production
-    networks: [okra_internal]
+    labels:
+      - "traefik.enable=true"
+      # Tell Traefik which of web's networks to use for load-balancing
+      - "traefik.docker.network=okra-med-proxy"
+      # Route all traffic for okra.mekatanker.shop to this service
+      - "traefik.http.routers.okra-web.entrypoints=websecure"
+      - "traefik.http.routers.okra-web.rule=Host(`okra.mekatanker.shop`)"
+      - "traefik.http.routers.okra-web.tls=true"
+      - "traefik.http.routers.okra-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.okra-web.loadbalancer.server.port=3000"
+    networks:
+      # Internal network: reaches postgres and redis
+      - okra_internal
+      # External network: Traefik discovers and load-balances via this
+      - okra-med-proxy
     depends_on: [postgres, redis]
     logging:
       driver: json-file
@@ -32,27 +46,16 @@ services:
     logging:
       driver: json-file
       options: { "max-size": "10m", "max-file": "3" }
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports: ["80:80", "443:443", "443:443/udp"]
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - okra_caddy_data:/data
-      - okra_caddy_config:/config
-    environment:
-      # Phase 1 (IP-only): set to the VPS public IP, e.g. 203.0.113.42
-      # Phase 2 (domain):  set to okramed.com — Caddy will obtain TLS automatically
-      CADDY_HOST: ${CADDY_HOST}
-    networks: [okra_internal]
-    logging:
-      driver: json-file
-      options: { "max-size": "10m", "max-file": "3" }
+  # caddy removed — Traefik handles TLS termination and reverse-proxying.
+  # The web container is reachable via the okra-med-proxy external network.
 volumes:
   okra_pgdata:
   okra_redisdata:
-  okra_caddy_data:
-  okra_caddy_config:
 networks:
   okra_internal:
     driver: bridge
+  okra-med-proxy:
+    # This network must be created on the VPS before first deploy:
+    #   docker network create okra-med-proxy
+    # It is external so Traefik (on host network) can discover containers on it.
+    external: true
