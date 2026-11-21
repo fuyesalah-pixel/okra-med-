@@ -1,0 +1,7 @@
+{
+  "common": { "loading": "Loading...", "save": "Save", "cancel": "Cancel" },
+  "auth": { "login": "Login", "logout": "Logout" },
+  "platform": { "dashboard": "Platform Dashboard" },
+  "tenant": { "dashboard": "Dashboard" },
+  "errors": { "notFound": "Not found", "unauthorized": "Unauthorized" }
+}
