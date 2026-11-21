@@ -7,3 +7,5 @@ test-pg.js
 .next/
 dist/
 out/
+next-env.d.ts
+*.tsbuildinfo

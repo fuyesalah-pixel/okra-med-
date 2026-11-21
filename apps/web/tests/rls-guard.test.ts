@@ -50,6 +50,17 @@ describe("RLS guard: every tenant table is actually protected", () => {
       if (!check.includes("tenant_id") || !check.includes("current_setting")) {
         violations.push(`${t.table_name}: WITH CHECK clause is not tenant-scoped (${check})`);
       }
+
+      // Without nullif, current_setting returns '' on a reused pooled connection
+      // and the ::uuid cast throws at runtime, even though single-connection tests pass.
+      // Postgres re-renders the expression (NULLIF, ::text casts), so match loosely.
+      const guarded = /nullif\s*\(\s*current_setting/i;
+      if (!guarded.test(using)) {
+        violations.push(`${t.table_name}: USING clause missing nullif(current_setting(...)) guard (${using})`);
+      }
+      if (!guarded.test(check)) {
+        violations.push(`${t.table_name}: WITH CHECK clause missing nullif(current_setting(...)) guard (${check})`);
+      }
     }
 
     expect(violations, `RLS violations:\n${violations.join("\n")}`).toEqual([]);
