@@ -1,4 +1,5 @@
 import { pgTable, pgEnum, uuid, varchar, text, boolean, timestamp, jsonb, integer, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const platformUserRoleEnum = pgEnum("platform_user_role", ["super_admin", "platform_support"]);
 export const tenantStatusEnum = pgEnum("tenant_status", ["trial", "active", "suspended", "archived"]);
@@ -6,6 +7,7 @@ export const calendarEnum = pgEnum("calendar_type", ["GC", "EC", "HIJRI"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["trialing", "active", "past_due", "canceled", "expired"]);
 export const billingCycleEnum = pgEnum("billing_cycle", ["monthly", "six_months", "annual"]);
 export const departmentTypeEnum = pgEnum("department_type", ["clinical", "lab", "pharmacy", "admin"]);
+export const notificationSeverityEnum = pgEnum("notification_severity", ["info", "warning", "critical"]);
 
 // ---------- Platform tables (no tenant_id) ----------
 
@@ -18,6 +20,7 @@ export const platformUsers = pgTable("platform_users", {
   twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -29,6 +32,12 @@ export const tenants = pgTable("tenants", {
   status: tenantStatusEnum("status").notNull().default("trial"),
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   subscriptionEndsAt: timestamp("subscription_ends_at", { withTimezone: true }),
+  contactEmail: varchar("contact_email", { length: 255 }),
+  contactPhone: varchar("contact_phone", { length: 31 }),
+  country: varchar("country", { length: 2 }).notNull().default("ET"),
+  notes: text("notes"),
+  provisionedAt: timestamp("provisioned_at", { withTimezone: true }),
+  suspendedReason: text("suspended_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -53,6 +62,9 @@ export const modules = pgTable("modules", {
   key: varchar("key", { length: 63 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
+  descriptionLong: text("description_long"),
+  displayOrder: integer("display_order").notNull().default(0),
+  isCore: boolean("is_core").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -64,7 +76,10 @@ export const modulePricing = pgTable("module_pricing", {
   currency: varchar("currency", { length: 5 }).notNull().default("ETB"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  // One active price per module; superseded rows stay for price history.
+  activeModuleUnique: uniqueIndex("module_pricing_active_module_uq").on(t.moduleId).where(sql`is_active`),
+}));
 
 export const subscriptions = pgTable("subscriptions", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -73,6 +88,8 @@ export const subscriptions = pgTable("subscriptions", {
   billingCycle: billingCycleEnum("billing_cycle").notNull().default("monthly"),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
   nextInvoiceAt: timestamp("next_invoice_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -80,12 +97,16 @@ export const subscriptions = pgTable("subscriptions", {
 
 export const subscriptionItems = pgTable("subscription_items", {
   id: uuid("id").defaultRandom().primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   subscriptionId: uuid("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
   moduleId: uuid("module_id").notNull().references(() => modules.id),
   instanceCount: integer("instance_count").notNull().default(1),
   unitPrice: integer("unit_price").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  tenantIdx: index("subscription_items_tenant_idx").on(t.tenantId),
+  subscriptionIdx: index("subscription_items_subscription_idx").on(t.subscriptionId),
+}));
 
 export const platformAuditLog = pgTable("platform_audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -97,6 +118,25 @@ export const platformAuditLog = pgTable("platform_audit_log", {
   after: jsonb("after"),
   ip: varchar("ip", { length: 63 }),
   userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const platformNotifications = pgTable("platform_notifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  severity: notificationSeverityEnum("severity").notNull().default("info"),
+  audience: uuid("audience").array().notNull().default(sql`'{}'::uuid[]`),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdBy: uuid("created_by").references(() => platformUsers.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -1,5 +1,5 @@
 import { createDb } from "./index";
-import { platformUsers, tenants, tenantSettings, tenantUsers, permissions, roles, rolePermissions, userRoles, modules, modulePricing, subscriptions, subscriptionItems } from "./schema";
+import { platformUsers, tenants, tenantSettings, tenantUsers, permissions, roles, rolePermissions, userRoles, modules, modulePricing, subscriptions, subscriptionItems, platformSettings } from "./schema";
 import { hash } from "argon2";
 import { eq } from "drizzle-orm";
 import "dotenv/config";
@@ -217,6 +217,17 @@ async function main() {
     }
   }
 
+  // platform settings
+  const platformSettingDefs: [string, unknown, string][] = [
+    ["base_fee", 50000, "Platform base fee per billing cycle, in minor units"],
+    ["trial_days", 14, "Length of a new tenant's trial period"],
+    ["default_currency", "ETB", "Currency used when a module has no explicit price"],
+    ["supported_currencies", ["ETB", "USD", "EUR", "SAR"], "Currencies tenants may be billed in"],
+  ];
+  for (const [key, value, description] of platformSettingDefs) {
+    await db.insert(platformSettings).values({ key, value, description }).onConflictDoNothing();
+  }
+
   // subscription for demo tenant
   const existingSub = await db.select().from(subscriptions).where(eq(subscriptions.tenantId, tenantId));
   let subId: string;
@@ -228,6 +239,7 @@ async function main() {
       billingCycle: "monthly",
       startsAt: new Date(),
       endsAt: trialEnd,
+      trialEndsAt: trialEnd,
       nextInvoiceAt: trialEnd,
     }).returning();
     subId = inserted[0].id;
@@ -244,6 +256,7 @@ async function main() {
     const hasItem = existingItem.some((i) => i.moduleId === modId);
     if (!hasItem) {
       await db.insert(subscriptionItems).values({
+        tenantId,
         subscriptionId: subId,
         moduleId: modId,
         instanceCount: 1,
@@ -256,6 +269,7 @@ async function main() {
   console.log(`✅ Tenant: ${SEED_TENANT_SLUG}  admin: ${SEED_TENANT_ADMIN_EMAIL}`);
   console.log(`✅ Permissions: ${permissionDefs.length}  Roles: 3  Modules: ${moduleDefs.length}`);
   console.log(`✅ Subscription: trialing until ${trialEnd.toISOString()}`);
+  console.log(`✅ Platform settings: ${platformSettingDefs.length}`);
 }
 
 main()
