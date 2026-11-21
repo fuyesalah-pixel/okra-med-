@@ -241,7 +241,18 @@ specificity proof: the break-it moves the provisioning tests and nothing else.
 
 ### Branch protection
 
-`main` is protected: the `verify` check (Verify Phase 0) is a required status check. The
-workflow now runs on `push` and `pull_request` to `main` (plus the existing manual
-`workflow_dispatch`), so CI runs automatically on every push. `enforce_admins` is off so
-the owner retains direct-push ability in an emergency; force pushes are blocked.
+`main` is protected: the `verify` check (Verify Phase 0) is a required status check
+(strict — the branch must be up to date before merge). The workflow now runs on
+`push` and `pull_request` to `main` (plus the existing manual `workflow_dispatch`),
+so CI runs automatically on every push — confirmed by run
+[44917251931](https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44917251931)
+(commit `8239e2e1`, all green). `enforce_admins` is on (admins are subject to every
+rule), force pushes and branch deletions are blocked. Direct pushes to `main` remain
+allowed because no pull-request reviews are required — but every push now triggers
+Verify Phase 0, so CI is the gate by construction.
+
+The `verify` trigger change landed in two commits: `fe8fe7c2` (added `push` /
+`pull_request`) had a YAML typo (`workflow_dispatch` missing its colon) that made
+GitHub fail to parse the file (0 jobs, immediate failure, run `44917145942`);
+`8239e2e1` fixed it. Both break-it commits (`c7a58aaa`, `fe8fe7c2`'s broken run)
+stay in history as evidence.
