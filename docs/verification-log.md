@@ -75,7 +75,7 @@ on a foreign-key violation rather than RLS, and the guard only inspected
   | --- | --- | --- |
   | Baseline | `f332d011` | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44896894584 ✅ 8/8 RLS + 21/21 platform + build |
   | Break-it | `ba0ea888` | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44897054712 ❌ 3/21 red (`expected 201 to be 403`, `expected 200 to be 403` ×2), RLS still 8/8, build skipped |
-  | Restore | `be2476d6` | recorded below |
+  | Restore | `be2476d6` + `437cbb5f` | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44897290837 ✅ all 12 steps: 8/8 RLS, 21/21 platform, build |
 
   The break-it failed **inside** `test:platform` with the RLS suite still green, which is
   the specificity proof: only the guard moved, nothing else did.
