@@ -30,9 +30,9 @@ services:
     env_file: .env.production
     environment:
       POSTGRES_USER: okra
-      # POSTGRES_PASSWORD must be set in .env.production:
-      #   POSTGRES_PASSWORD=<strong password>
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # POSTGRES_PASSWORD and POSTGRES_DB are supplied by env_file (.env.production).
+      # Do not use ${VAR} interpolation here — that requires the var in the shell
+      # environment at compose-up time. env_file passes it directly to the container.
       POSTGRES_DB: okramed
     volumes: [okra_pgdata:/var/lib/postgresql/data]
     networks: [okra_internal]
