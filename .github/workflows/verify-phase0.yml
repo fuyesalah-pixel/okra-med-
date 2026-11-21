@@ -48,4 +48,10 @@ jobs:
       - run: pnpm test:rls
         env:
           DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+      # Platform API suite runs as the owner: the control plane reads across
+      # tenants by design (see apps/web/src/lib/platform/db.ts).
+      - run: pnpm test:platform
+        env:
+          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
       - run: pnpm build

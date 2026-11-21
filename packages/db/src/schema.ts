@@ -118,6 +118,7 @@ export const platformAuditLog = pgTable("platform_audit_log", {
   after: jsonb("after"),
   ip: varchar("ip", { length: 63 }),
   userAgent: text("user_agent"),
+  correlationId: varchar("correlation_id", { length: 63 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -214,7 +215,10 @@ export const userDepartments = pgTable("user_departments", {
 export const tenantAuditLog = pgTable("tenant_audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  /** Tenant user who performed the action (tenant request paths). */
   actorId: uuid("actor_id").references(() => tenantUsers.id),
+  /** Platform admin who performed the action (control-plane paths). At most one actor column is set. */
+  platformActorId: uuid("platform_actor_id").references(() => platformUsers.id),
   action: varchar("action", { length: 127 }).notNull(),
   entityType: varchar("entity_type", { length: 63 }).notNull(),
   entityId: varchar("entity_id", { length: 255 }),
@@ -222,7 +226,9 @@ export const tenantAuditLog = pgTable("tenant_audit_log", {
   after: jsonb("after"),
   ip: varchar("ip", { length: 63 }),
   userAgent: text("user_agent"),
+  correlationId: varchar("correlation_id", { length: 63 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tenantIdx: index("tenant_audit_tenant_idx").on(t.tenantId),
+  platformActorIdx: index("tenant_audit_platform_actor_idx").on(t.platformActorId),
 }));

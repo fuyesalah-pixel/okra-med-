@@ -29,6 +29,20 @@
       "when": 1795249735053,
       "tag": "0003_phase1",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795249735057,
+      "tag": "0004_audit_correlation",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795249735061,
+      "tag": "0005_tenant_audit_platform_actor",
+      "breakpoints": true
     }
   ]
 }
