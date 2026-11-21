@@ -31,11 +31,18 @@ CI points all three at the owner because it is a throwaway database.
   to every table, not just clinical ones).
 - Every row carries `correlation_id` = the response's `x-request-id`.
 
-## Platform roles
+## Platform role model
 
-- `platform_support` — read-only across the control plane.
-- `super_admin` — every mutation: tenants, subscription state, modules, pricing,
-  settings, archive.
+- **super_admin** — full platform access. Can mutate tenants, pricing, settings,
+  modules, subscriptions, notifications. Every mutation is audited.
+- **platform_support** — read-only. Can view tenants, audit, dashboards and
+  read-only settings. **Cannot** create, suspend, archive or modify any tenant,
+  price, module or subscription. Escalation to super_admin is required for any
+  mutation.
+
+Rationale: support answers tickets; it does not cut a hospital off or rewrite the
+price list. Every consequential action has a named super_admin behind it, which
+is what makes the audit trail answerable.
 
 Roles are read from `platform_users` on each request, not trusted from the session
 cookie, so a demotion or deactivation takes effect immediately.

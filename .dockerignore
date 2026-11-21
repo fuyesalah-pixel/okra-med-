@@ -1,0 +1,17 @@
+# Host artifacts must never enter the image: on Windows they contain symlinks and
+# binaries that break the Linux build, and they bloat the context to hundreds of MB.
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+*.tsbuildinfo
+next-env.d.ts
+.git
+.github
+docs
+*.log
+.env
+.env.*
+!.env.example

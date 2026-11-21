@@ -41,6 +41,52 @@ on a foreign-key violation rather than RLS, and the guard only inspected
 4. Before any break-it test, ask: *which layer does this suite actually exercise?* Break that layer.
 5. Break-it commits stay in history. They are the evidence that the suite detects real faults.
 
+## Deploy workflow — triage (2026-11-21)
+
+**Status: three defects fixed, one blocker outstanding (missing repository secrets).**
+
+The `Deploy` workflow had been red on every push since Phase 0. It never reached the
+SSH step, so nothing was ever deployed and nothing said so.
+
+| # | Root cause | How it was found | Fix |
+| --- | --- | --- | --- |
+| 1 | `pnpm/action-setup@v4` declared `version: 9` while `package.json` declares `packageManager: pnpm@9.15.0` → `Error: Multiple versions of pnpm specified`, step 3 of 9, every run | CI job log | removed `version:` — the action reads `packageManager` |
+| 2 | `next lint` had no ESLint config, so it prompted interactively and exited 1 | ran `pnpm lint` locally | added `apps/web/.eslintrc.json` (`next/core-web-vitals`) and fixed the two errors it then reported (`const module` → `const created` / `updated` in the new platform module routes) |
+| 3 | `apps/web/Dockerfile` copied `packages/shared/package.json`, which does not exist; and never copied `pnpm-lock.yaml`, so `--frozen-lockfile` could never succeed; and builder copied only the root `node_modules`, so pnpm workspace links were lost | `docker build` locally | restructured deps/builder stages, pinned `pnpm@9.15.0`, added `.dockerignore` |
+| 4 | `deploy.sh` probed `curl http://localhost:3000/api/_health` **from the host**, but `docker-compose.prod.yml` publishes no port for `web` (Caddy reaches it over the internal network) — a healthy deploy would still have been reported as failed | reading the compose file | probe with `docker compose exec -T web wget -qO- …`, same probe the Dockerfile `HEALTHCHECK` already uses |
+| 5 | `test:rls` ran with no `DATABASE_URL` and no database in the Deploy job | reading the workflow | added a `postgres` service, `db:migrate`, `db:seed`, the non-superuser role, and `test:platform` to the push gate |
+| 6 | `builder` stage ran `pnpm` without installing it — each Docker stage is a fresh image | `docker build` locally | pin `pnpm@9.15.0` in the builder stage too |
+| 7 | runner stage copied `/app/apps/web/public`, which does not exist in the repo | `docker build` locally | added `apps/web/public/.gitkeep` |
+| 9 | Next's standalone server binds to `$HOSTNAME`, which Docker sets to the container id — the app listened on the container IP only, so **every in-container probe got ECONNREFUSED** while port-mapped traffic worked. A container that serves fine and reports permanently unhealthy | built the image and inspected `State.Health` | `ENV HOSTNAME=0.0.0.0` in the runner stage |
+| 10 | Even then, probing `localhost:3000` failed: Alpine resolves `localhost` to `::1` first and Node binds IPv4 only | `wget` inside the container | probe `127.0.0.1:3000` in `HEALTHCHECK` and `deploy.sh` |
+| 8 | The health endpoint lived at `api/_health`. **App Router treats `_`-prefixed folders as private**, so it was never routed: the production image answered **404** while `/platform/login` answered 200. Every deploy gate built on it (Dockerfile `HEALTHCHECK`, `deploy.sh`, the new post-deploy curl) could never pass. It also returned `{db:"ok", redis:"ok"}` as literals | ran the built image and curled it | moved to `api/health`, now actually checks `select 1` and `PING` and returns 503 when either is down |
+
+**Blocker:** the repository has **0 Actions secrets**. `VPS_HOST`, `VPS_USER`,
+`VPS_SSH_KEY` and `HEALTH_URL` are all unset, so no deploy can run. The workflow now
+fails with an explicit `Deploy target is not configured. Missing repository secrets: …`
+instead of a cryptic SSH error — deliberately red rather than silently skipped.
+
+**Impact:** Prompt 4 (Super Admin UI) needs a real HTTPS deploy to verify auth cookies,
+branding and rate limiting. The deploy path cannot be signed off until those secrets
+and a reachable VPS exist.
+
+### Local proof of the deploy artifact (no VPS needed)
+
+`docker build -f apps/web/Dockerfile .` → image built (311 MB), then run against
+real `postgres:16-alpine` + `redis:7-alpine` on a user network:
+
+| Check | Result |
+| --- | --- |
+| `GET /api/health` (host) | **200** `{"status":"ok","db":"ok","redis":"ok"}` |
+| `GET /platform/login` | **200** |
+| Docker `HEALTHCHECK` | **healthy** |
+| Redis stopped → health | **503** `{"status":"degraded","redis":"down"}` (the probe is not a literal any more) |
+| Redis restarted → health | **200** |
+
+What this does **not** prove: the VPS side (`deploy.sh`, compose, Caddy, TLS),
+because that requires the four missing secrets. The image, the runtime bind, the
+health endpoint and the probe targets are proven; the SSH/deploy step is not.
+
 ## Phase 1 — Platform Core
 
 ### Prompt 1 — Schema + Guard (accepted 2026-11-21)

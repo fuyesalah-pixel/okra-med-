@@ -5,16 +5,75 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Deploy runs only what main actually ships: install, lint, build, RLS.
+    # test:rls needs a database, so the job carries one (the previous workflow
+    # called `pnpm test:rls` with no DATABASE_URL and would have failed there).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: okra
+          POSTGRES_PASSWORD: okra
+          POSTGRES_DB: okramed
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      HEALTH_URL: ${{ secrets.HEALTH_URL }}
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here. The action reads `packageManager` from package.json;
+      # specifying both fails with "Multiple versions of pnpm specified", which is
+      # how this workflow died at step 3 on every push since Phase 0.
       - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm --filter @okra-med/web build
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+      - run: pnpm db:seed
+        env:
+          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          SEED_SUPER_ADMIN_EMAIL: admin@okramed.com
+          SEED_SUPER_ADMIN_PASSWORD: CiOnlyPassword123!
+          SEED_TENANT_SLUG: demo-clinic
+          SEED_TENANT_ADMIN_EMAIL: admin@demo-clinic.com
+          SEED_TENANT_ADMIN_PASSWORD: CiOnlyPassword123!
+      - name: Create non-superuser app role
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql -U okra -d okramed -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE okra_app LOGIN PASSWORD 'okra_app';" \
+            -c "GRANT USAGE ON SCHEMA public TO okra_app;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO okra_app;"
       - run: pnpm test:rls
+        env:
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+      - run: pnpm test:platform
+        env:
+          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+      - name: Check deploy configuration
+        # Secrets cannot be referenced in `if:` directly, hence the job-level env.
+        run: |
+          missing=""
+          [ -z "$VPS_HOST" ]     && missing="$missing VPS_HOST"
+          [ -z "$VPS_USER" ]     && missing="$missing VPS_USER"
+          [ -z "$VPS_SSH_KEY" ]  && missing="$missing VPS_SSH_KEY"
+          [ -z "$HEALTH_URL" ]   && missing="$missing HEALTH_URL"
+          if [ -n "$missing" ]; then
+            echo "::error::Deploy target is not configured. Missing repository secrets:$missing"
+            echo "Deploy needs: VPS_HOST, VPS_USER, VPS_SSH_KEY (private key), HEALTH_URL (e.g. https://okramed.com/api/health)"
+            exit 1
+          fi
       - name: Deploy
         uses: appleboy/ssh-action@v1
         with:
@@ -22,3 +81,11 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: /opt/okra-med/deploy.sh
+      - name: Verify production health
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS "$HEALTH_URL"; then echo; echo "Health OK"; exit 0; fi
+            sleep 6
+          done
+          echo "::error::Deployed, but $HEALTH_URL never returned 200"
+          exit 1

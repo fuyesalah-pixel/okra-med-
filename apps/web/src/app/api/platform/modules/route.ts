@@ -13,6 +13,6 @@ export const GET = wrapRoute(async () => {
 export const POST = wrapRoute(async (req, { requestId }) => {
   const actor = await requirePlatformRole(SUPER_ADMIN_ROLES);
   const input = createModuleSchema.parse(await readJson(req));
-  const module = await createModule(input, actor, { requestId, ...requestMeta(req) });
-  return Response.json({ data: module }, { status: 201 });
+  const created = await createModule(input, actor, { requestId, ...requestMeta(req) });
+  return Response.json({ data: created }, { status: 201 });
 });
