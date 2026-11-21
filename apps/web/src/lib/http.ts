@@ -16,20 +16,23 @@ export type RouteCtx<TParams extends Record<string, string>> = {
  *
  * Handlers return a `Response`; throw `AppError` for expected failures.
  */
-export function wrapRoute<TParams extends Record<string, string> = Record<string, never>>(
+/**
+ * Next 15 validates the second route argument against its generated
+ * `RouteContext` (`{ params: Promise<...> }`, never optional) whenever
+ * `experimental.typedRoutes` is on, so the returned handler must declare it
+ * required even for routes without dynamic segments.
+ */
+export function wrapRoute<TParams extends Record<string, string> = Record<string, string>>(
   handler: (req: Request, ctx: RouteCtx<TParams>) => Promise<Response>,
 ) {
-  return async (
-    req: Request,
-    routeCtx?: { params?: Promise<TParams> | TParams },
-  ): Promise<Response> => {
+  return async (req: Request, routeCtx: { params: Promise<TParams> }): Promise<Response> => {
     const incoming = req.headers.get("x-request-id");
     const requestId = incoming && incoming.length <= 63 ? incoming : crypto.randomUUID();
     const started = Date.now();
 
     let response: Response;
     try {
-      const params = ((await routeCtx?.params) ?? {}) as TParams;
+      const params = await routeCtx.params;
       response = await handler(req, { requestId, params });
     } catch (err) {
       response = errorResponse(err);

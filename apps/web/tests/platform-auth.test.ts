@@ -57,6 +57,7 @@ function req(method: string, url: string, body?: unknown) {
 
 /** Route handlers take `(_req, { params })` where params is a promise (Next 15). */
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+const noParams = { params: Promise.resolve({}) };
 
 beforeAll(async () => {
   supportId = await upsertUser(`support-${run}@okramed.local`, "platform_support");
@@ -89,7 +90,7 @@ afterAll(async () => {
 describe("requirePlatformRole via route handlers", () => {
   it("lets a platform_support user read the tenant list", async () => {
     state.userId = supportId;
-    const res = await listTenantsRoute(req("GET", "/api/platform/tenants"), undefined);
+    const res = await listTenantsRoute(req("GET", "/api/platform/tenants"), noParams);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.data.items)).toBe(true);
@@ -100,7 +101,7 @@ describe("requirePlatformRole via route handlers", () => {
     state.userId = supportId;
     const res = await createTenantRoute(
       req("POST", "/api/platform/tenants", { slug: `${SLUG}-support`, name: "Support Made This" }),
-      undefined,
+      noParams,
     );
     expect(res.status).toBe(403);
     expect((await res.json()).error.code).toBe("FORBIDDEN");
@@ -129,7 +130,7 @@ describe("requirePlatformRole via route handlers", () => {
 
   it("rejects an unauthenticated request with 401", async () => {
     state.userId = null;
-    const res = await listTenantsRoute(req("GET", "/api/platform/tenants"), undefined);
+    const res = await listTenantsRoute(req("GET", "/api/platform/tenants"), noParams);
     expect(res.status).toBe(401);
   });
 
@@ -141,7 +142,7 @@ describe("requirePlatformRole via route handlers", () => {
         name: "Super Made This",
         trialDays: 0,
       }),
-      undefined,
+      noParams,
     );
     expect(created.status).toBe(201);
     const body = await created.json();
