@@ -41,9 +41,9 @@ export async function requirePlatformRole(allowed: PlatformRole[]): Promise<Plat
     .limit(1);
 
   if (!user || !user.isActive) throw new AppError("UNAUTHORIZED", "Account is not active", 401);
-  if (!allowed.includes(user.role as PlatformRole)) {
-    throw new AppError("FORBIDDEN", "Your role does not permit this action", 403);
-  }
+  // BREAK-IT (Prompt 2): the role check is deliberately removed so CI proves
+  // the role tests fail for the right reason. Reverted in the next commit.
+  void allowed;
 
   return { actorId: user.id, email: user.email, role: user.role as PlatformRole };
 }
