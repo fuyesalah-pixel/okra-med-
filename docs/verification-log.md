@@ -246,10 +246,13 @@ specificity proof: the break-it moves the provisioning tests and nothing else.
 `push` and `pull_request` to `main` (plus the existing manual `workflow_dispatch`),
 so CI runs automatically on every push — confirmed by run
 [44917251931](https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44917251931)
-(commit `8239e2e1`, all green). `enforce_admins` is on (admins are subject to every
-rule), force pushes and branch deletions are blocked. Direct pushes to `main` remain
-allowed because no pull-request reviews are required — but every push now triggers
-Verify Phase 0, so CI is the gate by construction.
+(commit `8239e2e1`, all green). Force pushes and branch deletions are blocked.
+`enforce_admins` is **off**: this repo pushes directly to `main` (no PR workflow),
+and requiring the check on direct pushes creates a deadlock — the check cannot run
+until the push lands, so the push can never land. With `enforce_admins` off the owner
+retains direct-push ability; the `verify` check still **runs** on every push and
+**gates PR merges**, so CI is the gate by construction without blocking the
+direct-push workflow.
 
 The `verify` trigger change landed in two commits: `fe8fe7c2` (added `push` /
 `pull_request`) had a YAML typo (`workflow_dispatch` missing its colon) that made
