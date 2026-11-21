@@ -69,7 +69,16 @@ on a foreign-key violation rather than RLS, and the guard only inspected
 - **Break-it for Prompt 2** — target: `requirePlatformRole`. Removed the role check so
   any authenticated platform session passed. Result: **3 of 6 red**
   (create / suspend / archive by `platform_support`), while read / 401 / super_admin
-  stayed green. Restored → 21/21 green. CI result recorded below.
+  stayed green. Restored → 21/21 green.
+
+  | Run | Commit | Result |
+  | --- | --- | --- |
+  | Baseline | `f332d011` | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44896894584 ✅ 8/8 RLS + 21/21 platform + build |
+  | Break-it | `ba0ea888` | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44897054712 ❌ 3/21 red (`expected 201 to be 403`, `expected 200 to be 403` ×2), RLS still 8/8, build skipped |
+  | Restore | `be2476d6` | recorded below |
+
+  The break-it failed **inside** `test:platform` with the RLS suite still green, which is
+  the specificity proof: only the guard moved, nothing else did.
 - Regression tests locked in: `changedFields` ignores `updatedAt`, compares `Date` by
   value, treats equal Dates as unchanged.
 - Connection policy written down in `docs/architecture.md` (tenant / platform / migration
