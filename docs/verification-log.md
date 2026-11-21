@@ -178,10 +178,11 @@ seeded): **20/20 green** — 8 RLS (3 guard + 5 isolation) + 12 platform API.
   write time, a test only proves today's code path. Together with RLS this gives two
   independent guards against a cross-tenant write.
 
-### Prompt 3 — Subscription engine + tenant provisioning (local verification 2026-11-21)
+### Prompt 3 — Subscription engine + tenant provisioning (CI-verified 2026-11-21)
 
-**Not yet verified in CI:** these changes are uncommitted and were not pushed. The
-deploy workflow remains blocked on the four repository secrets recorded above.
+**Verified in CI:** baseline green → break-it red → restore green, all three runs on
+the `Verify Phase 0` workflow. The deploy workflow remains blocked on the four
+repository secrets recorded above (separate concern; does not affect verification).
 
 **Environment.** The project's `okramed-postgres-1` container was reachable from the
 host only through a TCP proxy on port 5433 (host 5432 is a separate native PostgreSQL
@@ -197,17 +198,50 @@ database was migrated from zero and seeded. `okra_app` was created with
 | `test:platform` (owner) | ✅ 21/21 |
 | `test:provisioning` (`okra_app` app / owner platform) | ✅ 7/7 |
 
-**Break-it.** Commented out the `set_config('app.tenant_id', …)` line in
+**Break-it (local + CI).** Commented out the `set_config('app.tenant_id', …)` line in
 `provisionTenant` and reran `test:provisioning`: **5 of 7 red**, including the required
 Test 3 (items invisible / RLS violation) and Test 2 (failure injected before commit).
-Restored the line → **7/7 green**. This is a local break-it only; no break-it commit was
-pushed.
+Restored the line → **7/7 green**. The break-it was then reproduced in CI (commit
+`c7a58aaa`) — the `test:provisioning` step failed while `test:rls` and `test:platform`
+stayed green and `build` was skipped — then restored (`52ccf504`) → all green.
 
 **Regression fixes required by the new contract.** Prompt 2's `platform-auth` test
 posted only `{slug, name, trialDays}` and read `body.data.id`. Provisioning now requires
 an admin and at least one module, and returns `{tenant, subscription, adminUserId, items}`.
 The test payload/response access and its fixture cleanup were updated (roles and the
-subscription do not cascade from `tenants`). Assertions were not weakened.
+subscription do not cascade from `tenants`). Assertions were not weakened — the
+create-tenant test still asserts a single `201` status, and the suspend follow-up still
+asserts `200` + `data.status === "suspended"`.
 
-**Not covered locally:** the CI break-it evidence and the VPS deploy. Both remain
-pending the owner's push authorization and the missing deploy secrets.
+**Three new negative tests** added to `platform-auth.test.ts` for the changed contract:
+- rejects a body missing `adminEmail` with `400` (`VALIDATION`, message mentions `adminEmail`)
+- rejects a body missing `modules` with `400` (`VALIDATION`, message mentions `modules`)
+- returns `409` with `TENANT_SLUG_TAKEN` on a slug collision (first request `201`, second `409`)
+
+**No cross-test pollution.** The full suite was run twice in a row without a fresh DB
+(`okramed_verify`, no re-migrate/re-seed between runs). Both runs identical and green:
+
+| Suite | Run 1 | Run 2 |
+| --- | --- | --- |
+| `test:rls` (`okra_app`) | 9/9 ✅ | 9/9 ✅ |
+| `test:platform` (owner) | 24/24 ✅ | 24/24 ✅ |
+| `test:provisioning` (`okra_app` / owner) | 7/7 ✅ | 7/7 ✅ |
+
+### CI runs (Verify Phase 0)
+
+| Run | Commit | Result | URL |
+| --- | --- | --- | --- |
+| Baseline | `b0ca4cfe` | ✅ 9/9 RLS + 24/24 platform + 7/7 provisioning + build | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44912196964 |
+| Break-it | `c7a58aaa` | ❌ provisioning red (`test:provisioning` failed), RLS 9/9 ✅, platform 24/24 ✅, build skipped | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44912502932 |
+| Restore | `52ccf504` | ✅ 9/9 RLS + 24/24 platform + 7/7 provisioning + build | https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44916558840 |
+
+The break-it failed **only** in `test:provisioning` (step 12), while `test:rls` (step 10)
+and `test:platform` (step 11) stayed green and `build` (step 13) was skipped — the surgical
+specificity proof: the break-it moves the provisioning tests and nothing else.
+
+### Branch protection
+
+`main` is protected: the `verify` check (Verify Phase 0) is a required status check. The
+workflow now runs on `push` and `pull_request` to `main` (plus the existing manual
+`workflow_dispatch`), so CI runs automatically on every push. `enforce_admins` is off so
+the owner retains direct-push ability in an emergency; force pushes are blocked.
