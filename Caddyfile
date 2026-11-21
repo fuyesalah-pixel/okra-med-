@@ -1,4 +1,18 @@
-okramed.com, www.okramed.com {
+# Production Caddy config.
+#
+# Phase 1 (IP-only): set CADDY_HOST to the server's public IP, e.g.:
+#   CADDY_HOST=203.0.113.42
+# Caddy will serve HTTP only (no ACME attempt on a bare IP).
+#
+# Phase 2 (domain): change CADDY_HOST to the domain, e.g.:
+#   CADDY_HOST=okramed.com
+# Caddy will obtain a TLS cert automatically via ACME. Add www redirect if
+# needed: add a second block `www.okramed.com { redir https://okramed.com{uri} }`
+#
+# CADDY_HOST is supplied via the caddy service's environment in
+# docker-compose.prod.yml (or directly in .env.production).
+
+{$CADDY_HOST} {
   reverse_proxy web:3000
   header {
     Strict-Transport-Security "max-age=31536000; includeSubDomains"
