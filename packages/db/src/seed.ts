@@ -258,7 +258,12 @@ async function main() {
   console.log(`✅ Subscription: trialing until ${trialEnd.toISOString()}`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await db.$client.end();
+  })
+  .catch(async (e) => {
+    console.error(e);
+    await db.$client.end();
+    process.exit(1);
+  });

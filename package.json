@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "test:rls": "vitest run apps/web/tests/rls.test.ts apps/web/tests/rls-guard.test.ts",
+    "test:rls": "pnpm --filter @okra-med/web exec vitest run tests/rls.test.ts tests/rls-guard.test.ts",
     "db:generate": "pnpm --filter @okra-med/db generate",
     "db:migrate": "pnpm --filter @okra-med/db migrate",
     "db:seed": "pnpm --filter @okra-med/db seed"

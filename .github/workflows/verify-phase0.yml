@@ -22,7 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -32,7 +31,21 @@ jobs:
       - run: pnpm db:seed
         env:
           DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          SEED_SUPER_ADMIN_EMAIL: admin@okramed.com
+          SEED_SUPER_ADMIN_PASSWORD: CiOnlyPassword123!
+          SEED_TENANT_SLUG: demo-clinic
+          SEED_TENANT_ADMIN_EMAIL: admin@demo-clinic.com
+          SEED_TENANT_ADMIN_PASSWORD: CiOnlyPassword123!
+      # Superusers (and the table owner unless FORCE is used) bypass RLS, so the
+      # RLS suites must connect as a plain role or they assert nothing.
+      - name: Create non-superuser app role
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql -U okra -d okramed -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE okra_app LOGIN PASSWORD 'okra_app';" \
+            -c "GRANT USAGE ON SCHEMA public TO okra_app;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO okra_app;"
+
       - run: pnpm test:rls
         env:
-          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
       - run: pnpm build
