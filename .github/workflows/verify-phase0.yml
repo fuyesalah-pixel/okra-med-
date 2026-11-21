@@ -54,4 +54,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
           PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+      # Provisioning runs as the tenant role so the SET LOCAL app.tenant_id in
+      # provisionTenant is actually required; the platform URL is the owner for
+      # fixtures and the composite-FK test.
+      - run: pnpm test:provisioning
+        env:
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+          PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
       - run: pnpm build

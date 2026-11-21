@@ -7,7 +7,7 @@ Base path: `/api/platform`. JSON in, JSON out. No UI yet — Prompt 4 consumes t
 - Success: `{ "data": ... }`. Errors: `{ "error": { "code", "message", "issues"? } }`.
 - Every response carries `x-request-id`. Send your own to correlate with logs.
 - 401 unauthenticated, 403 wrong platform role, 404 unknown entity, 409 illegal
-  transition/duplicate, 422 schema validation, 500 unexpected.
+  transition/duplicate, 400 schema validation, 500 unexpected.
 - Roles are read from `platform_users` on every request, not from the session
   cookie: deactivating or demoting an admin takes effect immediately.
   - `platform_support`: read-only across the control plane.
@@ -23,7 +23,7 @@ Base path: `/api/platform`. JSON in, JSON out. No UI yet — Prompt 4 consumes t
 | --- | --- | --- | --- |
 | GET | `/dashboard` | both | KPIs. Audited as `dashboard.view`. |
 | GET | `/tenants?status=&search=&limit=&offset=` | both | `limit` 1–100 (default 25). |
-| POST | `/tenants` | super_admin | Creates tenant + default settings only. **No subscription**: that is `provisionTenant` in Prompt 3 (or `POST /tenants/:id/subscription` when it lands). `{ slug, name, contactEmail?, contactPhone?, country?, notes?, trialDays? }`; `trialDays: 0` creates an `active` tenant. 409 on duplicate slug. |
+| POST | `/tenants` | super_admin | **Provisions atomically**: tenant + settings + trialing subscription + priced items + Administrator user. `{ slug, name, adminEmail, adminPassword, modules: [{ key, count }], billingCycle?, contactEmail?, contactPhone?, country?, notes? }`. 409 on duplicate slug, 422 on an unpriced module. |
 | GET | `/tenants/:id` | both | Tenant + settings + latest subscription + items + user counts. |
 | PATCH | `/tenants/:id` | super_admin | `{ name?, contactEmail?, contactPhone?, country?, notes? }`. 400 if archived. |
 | POST | `/tenants/:id/suspend` | super_admin | `{ reason }` (min 3). Deactivates every tenant user in the same transaction. |
@@ -35,6 +35,9 @@ Base path: `/api/platform`. JSON in, JSON out. No UI yet — Prompt 4 consumes t
 | PUT | `/modules/:id/pricing` | super_admin | `{ instancePrice (int, minor units), currency? }`. Retires the previous active price. |
 | GET | `/settings` | both | All platform settings. |
 | PATCH | `/settings/:key` | super_admin | `{ value, description? }`. 404 for unknown keys — settings are created by migration/seed, never ad hoc. |
+| PATCH | `/subscriptions/:id` | super_admin | `{ action: "renew" \| "cancel" }`. Renew extends `ends_at` by one billing cycle; cancel sets `canceled` + a 7-day grace window. Audited as `subscription.renew` / `subscription.cancel`. |
+| POST | `/tenants/:id/impersonate` | super_admin | `{ userId }`. Creates a 15-minute Redis session and audits `platform.impersonate.start` with `metadata.impersonated_tenant_user_id`. |
+| POST | `/quote` | **public** | `{ moduleSelections: [{ key, count }] }`. Live prices, no writes, 30/min/IP. |
 
 ### Tenant status transitions
 
@@ -71,9 +74,9 @@ currency rather than summed across them.
    `PLATFORM_DATABASE_URL` (a `BYPASSRLS` role in production). CI points both
    URLs at the owner because it is a test database. Do not serve tenant traffic
    from that connection.
-2. **Creating a tenant does not create a subscription.** Provisioning and the
-   subscription engine are Prompt 3. A fresh tenant therefore contributes zero
-   MRR and has no `subscription` in its detail payload.
+2. **`POST /tenants` now provisions the subscription too.** A tenant created
+   before Prompt 3 (or by the old service helper) may still have no subscription
+   and contribute zero MRR.
 3. **MRR needs an active price** to know a currency, because
    `subscription_items` snapshots `unit_price` but not currency. A module with
    no active price contributes zero. Fixing this properly means snapshotting

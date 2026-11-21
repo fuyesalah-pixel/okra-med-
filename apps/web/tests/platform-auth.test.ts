@@ -4,6 +4,9 @@ import {
   createDb,
   platformAuditLog,
   platformUsers,
+  rolePermissions,
+  roles,
+  subscriptions,
   tenantAuditLog,
   tenantUsers,
   tenants,
@@ -79,7 +82,15 @@ afterAll(async () => {
     .from(tenants)
     .where(sql`${tenants.slug} like ${`${SLUG}%`}`);
   for (const { id } of created) {
+    // Provisioned tenants own roles, users and a subscription, none of which
+    // cascade from `tenants`; remove them in FK order before the tenant row.
     await db.delete(tenantAuditLog).where(eq(tenantAuditLog.tenantId, id));
+    await db.execute(sql`delete from user_roles where user_id in (select id from tenant_users where tenant_id = ${id})`);
+    await db.delete(rolePermissions).where(
+      sql`${rolePermissions.roleId} in (select id from roles where tenant_id = ${id})`,
+    );
+    await db.delete(roles).where(eq(roles.tenantId, id));
+    await db.delete(subscriptions).where(eq(subscriptions.tenantId, id));
     await db.delete(tenantUsers).where(eq(tenantUsers.tenantId, id));
     await db.delete(tenants).where(eq(tenants.id, id));
   }
@@ -140,7 +151,9 @@ describe("requirePlatformRole via route handlers", () => {
       req("POST", "/api/platform/tenants", {
         slug: `${SLUG}-super`,
         name: "Super Made This",
-        trialDays: 0,
+        adminEmail: `admin-${run}@okramed.local`,
+        adminPassword: "AuthTestPass123!",
+        modules: [{ key: "registration", count: 1 }],
       }),
       noParams,
     );
@@ -148,10 +161,70 @@ describe("requirePlatformRole via route handlers", () => {
     const body = await created.json();
 
     const suspended = await suspendRoute(
-      req("POST", `/api/platform/tenants/${body.data.id}/suspend`, { reason: "test" }),
-      ctx(body.data.id),
+      req("POST", `/api/platform/tenants/${body.data.tenant.id}/suspend`, { reason: "test" }),
+      ctx(body.data.tenant.id),
     );
     expect(suspended.status).toBe(200);
     expect((await suspended.json()).data.status).toBe("suspended");
+  });
+
+  it("rejects a tenant create body missing adminEmail with 400", async () => {
+    state.userId = superId;
+    const res = await createTenantRoute(
+      req("POST", "/api/platform/tenants", {
+        slug: `${SLUG}-neg-email`,
+        name: "Missing Admin Email",
+        adminPassword: "AuthTestPass123!",
+        modules: [{ key: "registration", count: 1 }],
+        billingCycle: "monthly",
+      }),
+      noParams,
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("VALIDATION");
+    expect(JSON.stringify(body.error)).toContain("adminEmail");
+  });
+
+  it("rejects a tenant create body missing modules with 400", async () => {
+    state.userId = superId;
+    const res = await createTenantRoute(
+      req("POST", "/api/platform/tenants", {
+        slug: `${SLUG}-neg-modules`,
+        name: "Missing Modules",
+        adminEmail: `neg-${run}@okramed.local`,
+        adminPassword: "AuthTestPass123!",
+        billingCycle: "monthly",
+      }),
+      noParams,
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("VALIDATION");
+    expect(JSON.stringify(body.error)).toContain("modules");
+  });
+
+  it("returns 409 with TENANT_SLUG_TAKEN on a slug collision", async () => {
+    state.userId = superId;
+    const payload = {
+      slug: `${SLUG}-neg-dup`,
+      name: "Duplicate Slug",
+      adminEmail: `dup-${run}@okramed.local`,
+      adminPassword: "AuthTestPass123!",
+      modules: [{ key: "registration", count: 1 }],
+      billingCycle: "monthly",
+    };
+    const first = await createTenantRoute(
+      req("POST", "/api/platform/tenants", payload),
+      noParams,
+    );
+    expect(first.status).toBe(201);
+
+    const second = await createTenantRoute(
+      req("POST", "/api/platform/tenants", payload),
+      noParams,
+    );
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe("TENANT_SLUG_TAKEN");
   });
 });

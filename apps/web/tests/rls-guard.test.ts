@@ -116,6 +116,28 @@ describe("RLS guard: every tenant table is actually protected", () => {
     }
   });
 
+  it("subscription_items has composite FK (subscription_id, tenant_id) → subscriptions(id, tenant_id)", async () => {
+    const rows = (await db.execute(sql`
+      SELECT con.conname, pg_get_constraintdef(con.oid) AS definition
+      FROM pg_constraint con
+      JOIN pg_class c ON c.oid = con.conrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = 'subscription_items'
+        AND con.contype = 'f'
+        AND con.conname = 'subscription_items_subscription_tenant_fk'
+    `)) as unknown as { conname: string; definition: string }[];
+
+    expect(
+      rows.length,
+      "subscription_items is missing its composite tenant FK. Without it, a tenant_id that differs from the parent subscription's tenant_id is only caught by RLS — drop that for one code path and cross-tenant writes become possible. Re-add it from 0006_phase1_composite_fk.sql; do not drop it for performance.",
+    ).toBe(1);
+
+    expect(rows[0]!.definition).toMatch(
+      /FOREIGN KEY \(subscription_id, tenant_id\) REFERENCES subscriptions\(id, tenant_id\)/i,
+    );
+  });
+
   it("reports violations for a tenant table that loses protection", () => {
     const unprotected: TenantTablePolicy = {
       table_name: "tenant_users",

@@ -15,6 +15,16 @@ export type AuditParams = {
   entityId?: string;
   before?: unknown;
   after?: unknown;
+  /**
+   * Extra audit context stored under `after.metadata`.
+   *
+   * Deliberately IDs only, never PHI or field values. The one convention that
+   * uses it today is impersonation: `{ impersonated_tenant_user_id }`, so a
+   * platform admin's action can be attributed both to the impersonator and to
+   * the effective tenant user. No column was added — metadata rides in the
+   * existing `after` jsonb and is documented in docs/architecture.md.
+   */
+  metadata?: Record<string, unknown>;
   ip?: string;
   userAgent?: string;
   /** Request id from `wrapRoute`, so an audit row can be joined to logs and a response. */
@@ -35,28 +45,39 @@ export function fieldNames(value: unknown): { fields: string[] } | null {
   return { fields: Object.keys(value as Record<string, unknown>).sort() };
 }
 
-export async function audit(params: AuditParams, db: Db = platformDb()): Promise<void> {
-  const common = {
+function auditRow(params: AuditParams) {
+  const after = fieldNames(params.after);
+  return {
     action: params.action.slice(0, 127),
     entityType: params.entityType.slice(0, 63),
     entityId: params.entityId ?? null,
     before: fieldNames(params.before),
-    after: fieldNames(params.after),
+    after: params.metadata
+      ? { ...(after ?? { fields: [] }), metadata: params.metadata }
+      : after,
     ip: params.ip?.slice(0, 63) ?? null,
     userAgent: params.userAgent ?? null,
     correlationId: params.correlationId ?? null,
   };
+}
 
+/**
+ * Insert an audit row on a connection whose tenant context is already set (or
+ * which is allowed to cross tenants). Use this from inside an existing
+ * transaction so the audit row commits and rolls back with the operation.
+ *
+ * Does not open a transaction; `audit()` below is the context-managing entry
+ * point for callers that are not already inside one.
+ */
+export async function auditInTransaction(db: Db, params: AuditParams): Promise<void> {
+  const common = auditRow(params);
   try {
     if (params.tenantId) {
-      // tenant_audit_log is a tenant table with FORCE RLS: the insert needs context.
-      await withTenantContext(db, params.tenantId, async (tx) => {
-        await tx.insert(tenantAuditLog).values({
-          ...common,
-          tenantId: params.tenantId!,
-          actorId: params.actorId ?? null,
-          platformActorId: params.platformActorId ?? null,
-        });
+      await db.insert(tenantAuditLog).values({
+        ...common,
+        tenantId: params.tenantId,
+        actorId: params.actorId ?? null,
+        platformActorId: params.platformActorId ?? null,
       });
     } else {
       // platform_audit_log.actor_id already FKs to platform_users.
@@ -70,6 +91,17 @@ export async function audit(params: AuditParams, db: Db = platformDb()): Promise
     // an integrity hole — log loudly and let the caller decide.
     logger.error({ err, action: params.action, entityType: params.entityType }, "audit write failed");
   }
+}
+
+export async function audit(params: AuditParams, db: Db = platformDb()): Promise<void> {
+  if (params.tenantId) {
+    // tenant_audit_log is a tenant table with FORCE RLS: the insert needs context.
+    await withTenantContext(db, params.tenantId, (tx) =>
+      auditInTransaction(tx as unknown as Db, params),
+    );
+    return;
+  }
+  await auditInTransaction(db, params);
 }
 
 /** Field-name diff for an update, used for `before`/`after` audit payloads. */

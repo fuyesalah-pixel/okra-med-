@@ -71,6 +71,38 @@ export const updateSettingSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
 });
 
+export const billingCycles = ["monthly", "six_months", "annual"] as const;
+
+export const moduleSelectionSchema = z.object({
+  key: slug,
+  count: z.number().int().min(1).max(1000).default(1),
+});
+
+/**
+ * Provisioning is the full create: tenant + subscription + admin user.
+ * `trialDays` is intentionally not accepted here — the trial length lives in
+ * `platform_settings.trial_days` so every tenant is provisioned consistently.
+ */
+export const provisionTenantSchema = createTenantSchema.omit({ trialDays: true }).extend({
+  adminEmail: z.string().email().max(255),
+  adminPassword: z.string().min(8).max(200),
+  modules: z.array(moduleSelectionSchema).min(1).max(50),
+  billingCycle: z.enum(billingCycles).default("monthly"),
+});
+
+/** Public price calculator input. No auth, so it is deliberately narrow. */
+export const quoteSchema = z.object({
+  moduleSelections: z.array(moduleSelectionSchema).min(1).max(50),
+});
+
+export const subscriptionPatchSchema = z.object({
+  action: z.enum(["renew", "cancel"]),
+});
+
+export const impersonateSchema = z.object({
+  userId: z.string().uuid(),
+});
+
 export const listTenantsQuerySchema = z.object({
   status: z.enum(tenantStatuses).optional(),
   search: z.string().max(255).optional(),

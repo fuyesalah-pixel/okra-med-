@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, varchar, text, boolean, timestamp, jsonb, integer, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, varchar, text, boolean, timestamp, jsonb, integer, unique, uniqueIndex, index, primaryKey, foreignKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const platformUserRoleEnum = pgEnum("platform_user_role", ["super_admin", "platform_support"]);
@@ -93,7 +93,11 @@ export const subscriptions = pgTable("subscriptions", {
   nextInvoiceAt: timestamp("next_invoice_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  // Composite FK target for subscription_items. See 0006_phase1_composite_fk.sql.
+  idTenantUnique: unique("subscriptions_id_tenant_id_unique").on(t.id, t.tenantId),
+  tenantIdx: index("subscriptions_tenant_idx").on(t.tenantId),
+}));
 
 export const subscriptionItems = pgTable("subscription_items", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -102,10 +106,21 @@ export const subscriptionItems = pgTable("subscription_items", {
   moduleId: uuid("module_id").notNull().references(() => modules.id),
   instanceCount: integer("instance_count").notNull().default(1),
   unitPrice: integer("unit_price").notNull(),
+  /** Snapshot of module_pricing.currency at sale time; never read live for billing. */
+  currency: text("currency").notNull().default("ETB"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tenantIdx: index("subscription_items_tenant_idx").on(t.tenantId),
   subscriptionIdx: index("subscription_items_subscription_idx").on(t.subscriptionId),
+  /**
+   * Defense in depth: tenant_id must match the parent subscription's tenant_id,
+   * independently of whatever app.tenant_id happens to be set. See 0006.
+   */
+  subscriptionTenantFk: foreignKey({
+    name: "subscription_items_subscription_tenant_fk",
+    columns: [t.subscriptionId, t.tenantId],
+    foreignColumns: [subscriptions.id, subscriptions.tenantId],
+  }).onDelete("cascade"),
 }));
 
 export const platformAuditLog = pgTable("platform_audit_log", {

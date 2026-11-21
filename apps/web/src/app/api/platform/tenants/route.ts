@@ -1,7 +1,8 @@
 import { readJson, requestMeta, wrapRoute } from "@/lib/http";
 import { READ_ROLES, requirePlatformRole, SUPER_ADMIN_ROLES } from "@/lib/platform/auth";
-import { createTenantSchema, listTenantsQuerySchema } from "@/lib/platform/schemas";
-import { createTenant, listTenants } from "@/lib/platform/service";
+import { listTenantsQuerySchema, provisionTenantSchema } from "@/lib/platform/schemas";
+import { listTenants } from "@/lib/platform/service";
+import { provisionTenant } from "@/lib/provisioning/provision";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,17 @@ export const GET = wrapRoute(async (req) => {
   return Response.json({ data: await listTenants(query) });
 });
 
+/**
+ * Provisioning is now atomic: tenant + settings + subscription + items +
+ * Administrator user. A previous POST created only the tenant, leaving a shell
+ * that could not log in and had no subscription.
+ */
 export const POST = wrapRoute(async (req, { requestId }) => {
   const actor = await requirePlatformRole(SUPER_ADMIN_ROLES);
-  const input = createTenantSchema.parse(await readJson(req));
-  const tenant = await createTenant(input, actor, { requestId, ...requestMeta(req) });
-  return Response.json({ data: tenant }, { status: 201 });
+  const input = provisionTenantSchema.parse(await readJson(req));
+  const { tenant, subscription, adminUserId, items } = await provisionTenant(input, actor, {
+    requestId,
+    ...requestMeta(req),
+  });
+  return Response.json({ data: { tenant, subscription, adminUserId, items } }, { status: 201 });
 });

@@ -43,6 +43,13 @@
       "when": 1795249735061,
       "tag": "0005_tenant_audit_platform_actor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795249735070,
+      "tag": "0006_phase1_composite_fk",
+      "breakpoints": true
     }
   ]
 }

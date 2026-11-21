@@ -177,3 +177,37 @@ seeded): **20/20 green** — 8 RLS (3 guard + 5 isolation) + 12 platform API.
   boundaries are invariants, not behaviours: a constraint refuses the invalid state at
   write time, a test only proves today's code path. Together with RLS this gives two
   independent guards against a cross-tenant write.
+
+### Prompt 3 — Subscription engine + tenant provisioning (local verification 2026-11-21)
+
+**Not yet verified in CI:** these changes are uncommitted and were not pushed. The
+deploy workflow remains blocked on the four repository secrets recorded above.
+
+**Environment.** The project's `okramed-postgres-1` container was reachable from the
+host only through a TCP proxy on port 5433 (host 5432 is a separate native PostgreSQL
+instance shared with the `yene` roles; it was not modified). A fresh `okramed_verify`
+database was migrated from zero and seeded. `okra_app` was created with
+`NOSUPERUSER NOBYPASSRLS`; `okra` (container superuser) served as the control plane.
+
+| Check | Result |
+| --- | --- |
+| `pnpm db:migrate` (0000–0006, from empty) | ✅ all applied, including `0006_phase1_composite_fk` |
+| `tsc --noEmit` | ✅ clean |
+| `test:rls` (`okra_app`) | ✅ 9/9 (4 guard + 5 isolation) |
+| `test:platform` (owner) | ✅ 21/21 |
+| `test:provisioning` (`okra_app` app / owner platform) | ✅ 7/7 |
+
+**Break-it.** Commented out the `set_config('app.tenant_id', …)` line in
+`provisionTenant` and reran `test:provisioning`: **5 of 7 red**, including the required
+Test 3 (items invisible / RLS violation) and Test 2 (failure injected before commit).
+Restored the line → **7/7 green**. This is a local break-it only; no break-it commit was
+pushed.
+
+**Regression fixes required by the new contract.** Prompt 2's `platform-auth` test
+posted only `{slug, name, trialDays}` and read `body.data.id`. Provisioning now requires
+an admin and at least one module, and returns `{tenant, subscription, adminUserId, items}`.
+The test payload/response access and its fixture cleanup were updated (roles and the
+subscription do not cascade from `tenants`). Assertions were not weakened.
+
+**Not covered locally:** the CI break-it evidence and the VPS deploy. Both remain
+pending the owner's push authorization and the missing deploy secrets.

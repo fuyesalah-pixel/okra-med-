@@ -31,6 +31,46 @@ CI points all three at the owner because it is a throwaway database.
   to every table, not just clinical ones).
 - Every row carries `correlation_id` = the response's `x-request-id`.
 
+## Subscriptions and money
+
+- **Prices are snapshots, not joins.** `subscription_items` stores `unit_price`
+  and `currency` at the moment the line is sold. Billing (`computeMonthlyBill`)
+  reads those columns and never joins live `module_pricing`; re-pricing a module
+  must not silently re-price an existing subscription, and an old invoice must be
+  reproducible.
+- **Quotes read live prices.** `computeQuote` is the only path that prices from
+  `module_pricing`, and it never writes. The public `/api/platform/quote` endpoint
+  uses it (30 requests/minute/IP).
+- **One currency per line list.** `computeMonthlyBill` / `computeQuote` raise
+  `MULTI_CURRENCY` (422) rather than summing ETB and USD into a meaningless total.
+  Multi-currency billing is a Phase 5 feature; a wrong number is worse than an
+  error.
+- **Composite tenant FK.** `subscription_items (subscription_id, tenant_id)`
+  references `subscriptions (id, tenant_id)`. Together with RLS this is two
+  independent guards against a cross-tenant write: removing
+  `SET LOCAL app.tenant_id` from provisioning still fails on the FK, and dropping
+  the FK still fails on RLS. The guard test in `rls-guard.test.ts` fails CI if the
+  constraint disappears — do not drop it "for performance".
+- **Provisioning is one transaction.** `provisionTenant` sets `app.tenant_id` to a
+  pre-generated tenant id before any tenant-scoped insert, then creates tenant,
+  settings, subscription, items, and the Administrator user. A failure anywhere
+  (including an unpriced module) rolls back the whole tenant; there is no partial
+  tenant to repair by hand. Audits are written inside the same transaction.
+
+## Impersonation metadata
+
+A platform admin impersonating a tenant user writes to `tenant_audit_log` with
+**both** identities:
+
+- `platform_actor_id` — the impersonator (the accountable human).
+- `after.metadata.impersonated_tenant_user_id` — the effective tenant user.
+
+`actor_id` stays empty: the platform admin is not a `tenant_users` row. This is
+the one use of `audit()`'s `metadata` field; it carries identifiers only, never
+PHI or field values, and it lives in the existing `after` jsonb so no column was
+added for it. Impersonation sessions are Redis-only, expire after 15 minutes, and
+do not create a tenant login.
+
 ## Platform role model
 
 - **super_admin** — full platform access. Can mutate tenants, pricing, settings,

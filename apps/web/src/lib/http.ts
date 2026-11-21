@@ -59,7 +59,7 @@ function errorResponse(err: unknown): Response {
           issues: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
         },
       },
-      { status: 422 },
+      { status: 400 },
     );
   }
   if (err instanceof AppError) return toResponse(err);
