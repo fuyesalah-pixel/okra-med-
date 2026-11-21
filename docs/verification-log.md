@@ -5,9 +5,10 @@ A phase without those three runs is not verified, regardless of test counts.
 
 ## Phase 0 — Foundation + RLS Spine (2026-11-21)
 
-- Baseline: https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44891676616 (`f7061303`)
+- Baseline (final, with `nullif` guard): https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44892390618 (`1a66750a`)
 - Break-it: https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44891805508 (`a9960e93`) — 6/6 red
 - Restore: https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44891890977 (`0ba9130a`)
+- Baseline (suite hardened, pre-`nullif` guard): https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44891676616 (`f7061303`)
 - Guard: detects permissive `USING`, detects missing `WITH CHECK`, 0 violations at baseline
 - Tag: `v0.1.0`
 
