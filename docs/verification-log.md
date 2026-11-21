@@ -61,6 +61,14 @@ SSH step, so nothing was ever deployed and nothing said so.
 | 10 | Even then, probing `localhost:3000` failed: Alpine resolves `localhost` to `::1` first and Node binds IPv4 only | `wget` inside the container | probe `127.0.0.1:3000` in `HEALTHCHECK` and `deploy.sh` |
 | 8 | The health endpoint lived at `api/_health`. **App Router treats `_`-prefixed folders as private**, so it was never routed: the production image answered **404** while `/platform/login` answered 200. Every deploy gate built on it (Dockerfile `HEALTHCHECK`, `deploy.sh`, the new post-deploy curl) could never pass. It also returned `{db:"ok", redis:"ok"}` as literals | ran the built image and curled it | moved to `api/health`, now actually checks `select 1` and `PING` and returns 503 when either is down |
 
+**CI evidence** (commit `46df14ae`):
+
+- `Verify Phase 0` — https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44902507626 ✅
+- `Deploy` — https://github.com/fuyesalah-pixel/okra-med-/actions/runs/44902500218 ❌ at **step 14 of 33**, "Check deploy configuration".
+  Steps 1–13 (checkout, pnpm, install, lint, build, migrate, seed, app role, RLS 8/8,
+  platform 21/21) are all green. The workflow now fails **only** because the deploy
+  target is unconfigured — which is the honest state, not a cached mystery.
+
 **Blocker:** the repository has **0 Actions secrets**. `VPS_HOST`, `VPS_USER`,
 `VPS_SSH_KEY` and `HEALTH_URL` are all unset, so no deploy can run. The workflow now
 fails with an explicit `Deploy target is not configured. Missing repository secrets: …`
