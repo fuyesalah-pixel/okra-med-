@@ -1,5 +1,5 @@
 import { readJson, requestMeta, wrapRoute } from "@/lib/http";
-import { READ_ROLES, requirePlatformRole, TENANT_ADMIN_ROLES } from "@/lib/platform/auth";
+import { READ_ROLES, requirePlatformRole, SUPER_ADMIN_ROLES } from "@/lib/platform/auth";
 import { createTenantSchema, listTenantsQuerySchema } from "@/lib/platform/schemas";
 import { createTenant, listTenants } from "@/lib/platform/service";
 
@@ -14,7 +14,7 @@ export const GET = wrapRoute(async (req) => {
 });
 
 export const POST = wrapRoute(async (req, { requestId }) => {
-  const actor = await requirePlatformRole(TENANT_ADMIN_ROLES);
+  const actor = await requirePlatformRole(SUPER_ADMIN_ROLES);
   const input = createTenantSchema.parse(await readJson(req));
   const tenant = await createTenant(input, actor, { requestId, ...requestMeta(req) });
   return Response.json({ data: tenant }, { status: 201 });

@@ -12,9 +12,15 @@ export type PlatformActor = {
   role: PlatformRole;
 };
 
-/** Both platform roles can read the control plane; only super_admin can change the product. */
+/**
+ * platform_support is read-only. Every mutation in the control plane — tenants,
+ * modules, pricing, settings, archive — is super_admin only.
+ *
+ * Support staff need to see a clinic's state to answer a ticket; they do not need
+ * the power to cut a hospital off or rewrite the price list. A compromised support
+ * account must not be able to change the product.
+ */
 export const READ_ROLES: PlatformRole[] = ["super_admin", "platform_support"];
-export const TENANT_ADMIN_ROLES: PlatformRole[] = ["super_admin", "platform_support"];
 export const SUPER_ADMIN_ROLES: PlatformRole[] = ["super_admin"];
 
 /**

@@ -58,7 +58,25 @@ on a foreign-key violation rather than RLS, and the guard only inspected
   on `public`, and `pg_temp` is outside the catalog scan — the test would pass without
   exercising the scan); `0003_phase1.sql` hand-written rather than generated, because the
   stale `meta/` baseline would re-emit `0001`/`0002` objects. See `packages/db/README.md`.
-### Prompt 2 — Platform API core (2026-11-21)
+### Prompt 2 — Platform API core (accepted 2026-11-21)
+
+- Commit: `3b8b2b01` (platform API) + follow-up commit (role matrix + regression tests)
+- Endpoints: 12 platform API endpoints + dashboard; contract at `docs/api/platform.md`
+- 21/21 platform tests green locally (15 API + 6 role guard) and 8/8 RLS
+- Role matrix tightened to the approved shape: `platform_support` is **read-only**;
+  every mutation (tenant create/update/suspend/reactivate/archive, modules, pricing,
+  settings) is `super_admin` only. Support answers tickets; it cannot cut a clinic off.
+- **Break-it for Prompt 2** — target: `requirePlatformRole`. Removed the role check so
+  any authenticated platform session passed. Result: **3 of 6 red**
+  (create / suspend / archive by `platform_support`), while read / 401 / super_admin
+  stayed green. Restored → 21/21 green. CI result recorded below.
+- Regression tests locked in: `changedFields` ignores `updatedAt`, compares `Date` by
+  value, treats equal Dates as unchanged.
+- Connection policy written down in `docs/architecture.md` (tenant / platform / migration
+  roles), including the rule that `PLATFORM_DATABASE_URL` never appears in tenant code.
+- Schema comment records why `tenant_audit_log` must not cascade from `tenants`.
+
+### Prompt 2 — Platform API core (2026-11-21, first report)
 
 Local verification on a fresh `postgres:16-alpine` (port 55432, hand-migrated and
 seeded): **20/20 green** — 8 RLS (3 guard + 5 isolation) + 12 platform API.

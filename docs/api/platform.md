@@ -10,8 +10,9 @@ Base path: `/api/platform`. JSON in, JSON out. No UI yet — Prompt 4 consumes t
   transition/duplicate, 422 schema validation, 500 unexpected.
 - Roles are read from `platform_users` on every request, not from the session
   cookie: deactivating or demoting an admin takes effect immediately.
-  - `platform_support`: read everything, create/update tenants, suspend/reactivate.
-  - `super_admin`: everything above, plus archive tenant, module CRUD, pricing, settings.
+  - `platform_support`: read-only across the control plane.
+  - `super_admin`: every mutation — tenants, modules, pricing, settings, archive.
+  - Support staff answer tickets; they cannot cut a hospital off or rewrite prices.
 - All mutations write an audit row (platform actions → `platform_audit_log`;
   status changes → `tenant_audit_log`) with `correlation_id` and **field names
   only** in `before`/`after` — never values (PHI rule, applied everywhere).
@@ -22,11 +23,11 @@ Base path: `/api/platform`. JSON in, JSON out. No UI yet — Prompt 4 consumes t
 | --- | --- | --- | --- |
 | GET | `/dashboard` | both | KPIs. Audited as `dashboard.view`. |
 | GET | `/tenants?status=&search=&limit=&offset=` | both | `limit` 1–100 (default 25). |
-| POST | `/tenants` | both | `{ slug, name, contactEmail?, contactPhone?, country?, notes?, trialDays? }`. `trialDays: 0` creates an `active` tenant. 409 on duplicate slug. |
+| POST | `/tenants` | super_admin | Creates tenant + default settings only. **No subscription**: that is `provisionTenant` in Prompt 3 (or `POST /tenants/:id/subscription` when it lands). `{ slug, name, contactEmail?, contactPhone?, country?, notes?, trialDays? }`; `trialDays: 0` creates an `active` tenant. 409 on duplicate slug. |
 | GET | `/tenants/:id` | both | Tenant + settings + latest subscription + items + user counts. |
-| PATCH | `/tenants/:id` | both | `{ name?, contactEmail?, contactPhone?, country?, notes? }`. 400 if archived. |
-| POST | `/tenants/:id/suspend` | both | `{ reason }` (min 3). Deactivates every tenant user in the same transaction. |
-| POST | `/tenants/:id/reactivate` | both | Suspended → active; reactivates the tenant's users. |
+| PATCH | `/tenants/:id` | super_admin | `{ name?, contactEmail?, contactPhone?, country?, notes? }`. 400 if archived. |
+| POST | `/tenants/:id/suspend` | super_admin | `{ reason }` (min 3). Deactivates every tenant user in the same transaction. |
+| POST | `/tenants/:id/reactivate` | super_admin | Suspended → active; reactivates the tenant's users. |
 | POST | `/tenants/:id/archive` | super_admin | `{ reason? }`. Terminal: no transition out. |
 | GET | `/modules` | both | Modules with their active price (`pricing` or `null`). |
 | POST | `/modules` | super_admin | `{ key, name, description?, descriptionLong?, displayOrder?, isCore?, isActive? }`. 409 on duplicate key. |

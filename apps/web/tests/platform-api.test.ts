@@ -15,6 +15,7 @@ import {
   tenants,
 } from "@okra-med/db";
 import { sql } from "drizzle-orm";
+import { changedFields } from "@/lib/audit";
 import {
   archiveTenant,
   createModule,
@@ -299,6 +300,30 @@ describe("platform settings", () => {
       code: "NOT_FOUND",
       httpStatus: 404,
     });
+  });
+});
+
+describe("changedFields (audit diffing)", () => {
+  it("reports no change when only updatedAt differs", () => {
+    const before = { name: "Clinic", updatedAt: new Date(0) };
+    const after = { name: "Clinic", updatedAt: new Date(5_000) };
+    expect(changedFields(before, after)).toEqual({ before: null, after: null });
+  });
+
+  it("detects a Date change by value, not by reference", () => {
+    const before = { trialEndsAt: new Date(0) };
+    const after = { trialEndsAt: new Date(86_400_000) };
+    const diff = changedFields(before, after);
+    // changedFields returns values; audit() reduces them to field names.
+    expect(Object.keys(diff.before!)).toEqual(["trialEndsAt"]);
+    expect(Object.keys(diff.after!)).toEqual(["trialEndsAt"]);
+    expect(diff.after!.trialEndsAt).toBeInstanceOf(Date);
+  });
+
+  it("treats two equal Dates as unchanged", () => {
+    const before = { trialEndsAt: new Date(1_700_000_000_000) };
+    const after = { trialEndsAt: new Date(1_700_000_000_000) };
+    expect(changedFields(before, after)).toEqual({ before: null, after: null });
   });
 });
 

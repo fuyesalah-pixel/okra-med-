@@ -212,6 +212,9 @@ export const userDepartments = pgTable("user_departments", {
   pk: primaryKey({ columns: [t.userId, t.departmentId] }),
 }));
 
+// tenant_audit_log does NOT cascade from tenants. Audit records are evidence and
+// must survive tenant archival. Hard-delete of an audited tenant is intentionally
+// impossible; use archive. Do not "fix" the missing `onDelete: cascade`.
 export const tenantAuditLog = pgTable("tenant_audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
