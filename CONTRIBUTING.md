@@ -47,6 +47,21 @@ GRANT USAGE ON SCHEMA public TO okra_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO okra_app;
 ```
 
+## Workflow debugging rule
+
+When any CI/CD workflow fails, do **not** just fix the failing step and declare
+victory. The workflow stops at the first failure, so every step after it is
+unexercised. After fixing step N, verify that steps N+1 through the end actually
+run and pass on the next push.
+
+Rationale: in Phase 1 the `Deploy` workflow had been dying at step 3 for three
+prompts, hiding ten defects behind it. Fixing step 3 exposed nine more.
+
+Exception: when a step is blocked on a genuine external dependency (no VPS
+credentials, no DNS), make it fail **loudly** rather than skip. A silent skip is
+how a pipeline stays "green" for months while being fundamentally broken. That
+is why `Check deploy configuration` exits non-zero when the secrets are missing.
+
 ## Rules that are not negotiable
 
 - Never weaken an assertion to make CI green. If a test fails, find out which layer
