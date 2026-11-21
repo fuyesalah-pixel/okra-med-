@@ -73,7 +73,8 @@ export async function provisionTenant(
     const scoped = tx as unknown as Db;
 
     // STEP 1: set the tenant context before any tenant-scoped row is written.
-    await tx.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+    // BREAK-IT (temporary): context deliberately not set.
+    // await tx.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
 
     const [clash] = await tx
       .select({ id: tenants.id })
