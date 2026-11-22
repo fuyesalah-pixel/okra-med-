@@ -259,3 +259,28 @@ The `verify` trigger change landed in two commits: `fe8fe7c2` (added `push` /
 GitHub fail to parse the file (0 jobs, immediate failure, run `44917145942`);
 `8239e2e1` fixed it. Both break-it commits (`c7a58aaa`, `fe8fe7c2`'s broken run)
 stay in history as evidence.
+
+## Phase 1 — Deploy Gate (2026-11-22) — CLOSED
+
+- **URL:** https://okra.mekatanker.shop
+- **TLS:** Let's Encrypt (issuer `CN=YR2`, subject `CN=okra.mekatanker.shop`) — valid, no browser warning
+- **Health:** `{"status":"ok","db":"ok","redis":"ok","version":"0.1.0"}`
+- **Login:** HTTP 200
+- **Routing:** Traefik DNS-01 certresolver (Cloudflare provider, `dns-letsencrypt` resolver)
+- **DNS-01 rationale:** HTTP-01 (port 80) blocked by Hostinger network firewall; DNS-01 bypasses
+  that by creating a TXT record via Cloudflare API — no inbound port 80 needed
+- **Custom DNS resolvers:** `1.1.1.1:53,8.8.8.8:53` added to bypass VPS's local
+  `systemd-resolved` (`127.0.0.53`) which returned NXDOMAIN for the ACME challenge TXT record
+- **ACME email:** fuadnesredinhiyar@gmail.com
+- **Scope:** okra-med project only; existing projects (mekatanker, travel, yene) unaffected —
+  confirmed: `mekatanker.shop` 200, `travel.togttrading.com` 307 after all Traefik restarts
+- **Rollback:** `docker compose -p okra_med down` removes the app; Traefik auto-drops the route
+
+### Deferred to human (required before Phase 1 sign-off)
+
+- [ ] Rotate the Cloudflare API token — it was sent through chat (security breach). Delete the
+      current token in Cloudflare → create a new one → update `/docker/traefik/.env` on VPS →
+      restart Traefik → verify health still 200
+- [ ] Set 4 GitHub secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `HEALTH_URL`) at
+      https://github.com/fuyesalah-pixel/okra-med-/settings/secrets/actions
+- [ ] Verify automated deploy: push a trivial commit → watch Deploy workflow → confirm green

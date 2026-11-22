@@ -72,3 +72,27 @@ is why `Check deploy configuration` exits non-zero when the secrets are missing.
 - Break-it commits stay in history. They are the evidence that a suite detects real
   faults, not just that it passes.
 - Audit rows record changed **field names**, never values.
+
+
+## Credential handling rules
+
+Credentials live **only** in the specific file or service that needs them:
+
+| Credential | Lives in |
+|---|---|
+| App secrets | `/opt/okra-med/.env.production` on the VPS, `chmod 600` |
+| Traefik secrets (ACME email, Cloudflare token) | `/docker/traefik/.env` on the VPS, `chmod 600` |
+| Deploy SSH key | `~/.ssh/okra-med-deploy` on the operator's machine |
+| CI secrets | GitHub repository secrets |
+
+**Never** put credentials in:
+- Desktop, Downloads, Documents — Windows auto-syncs these to OneDrive
+- Git-tracked files, even in `.gitignore`'d paths
+- Chat, email, screenshots, screen shares
+- Any file that persists beyond the task that needed it
+
+If an agent or tool suggests putting a credential in an unusual location, stop and
+ask: *"is this the file that actually needs it, or is this a convenience shortcut?"*
+
+When rotating a credential, delete the old one from every location before adding
+the new one. If you suspect a credential leaked, rotate immediately — do not wait.
