@@ -13,7 +13,7 @@ services:
       - "traefik.http.routers.okra-web.entrypoints=websecure"
       - "traefik.http.routers.okra-web.rule=Host(`okra.mekatanker.shop`)"
       - "traefik.http.routers.okra-web.tls=true"
-      - "traefik.http.routers.okra-web.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.okra-web.tls.certresolver=dns-letsencrypt"
       - "traefik.http.services.okra-web.loadbalancer.server.port=3000"
     networks:
       # Internal network: reaches postgres and redis
