@@ -103,9 +103,54 @@ export const impersonateSchema = z.object({
   userId: z.string().uuid(),
 });
 
+export const tenantSorts = ["created_desc", "created_asc", "name_asc", "name_desc"] as const;
+
 export const listTenantsQuerySchema = z.object({
   status: z.enum(tenantStatuses).optional(),
   search: z.string().max(255).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
+  sort: z.enum(tenantSorts).default("created_desc"),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "use a 6-digit hex colour");
+
+export const tenantCalendars = ["GC", "EC", "HIJRI"] as const;
+
+/**
+ * Tenant settings are split across `tenants` (contact) and `tenant_settings`
+ * (branding/terminology). One endpoint accepts both so a single Save does not
+ * leave the two rows half-updated from the operator's point of view.
+ */
+export const updateTenantSettingsSchema = z
+  .object({
+    contactEmail: z.string().email().max(255).nullable().optional(),
+    contactPhone: z.string().max(31).nullable().optional(),
+    country: z.string().length(2).toUpperCase().optional(),
+    notes: z.string().max(4000).nullable().optional(),
+    logoUrl: z.string().url().max(500).nullable().optional(),
+    primaryColor: hexColor.optional(),
+    secondaryColor: hexColor.optional(),
+    accentColor: hexColor.optional(),
+    defaultLocale: z.string().min(2).max(10).optional(),
+    defaultCalendar: z.enum(tenantCalendars).optional(),
+    baseCurrency: currency.optional(),
+    terminologyOverrides: z
+      .record(z.string().min(1).max(100), z.string().max(200))
+      .refine((v) => Object.keys(v).length <= 50, { message: "at most 50 overrides" })
+      .optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
+
+export const updateSubscriptionModulesSchema = z.object({
+  modules: z.array(moduleSelectionSchema).min(1).max(50),
+});
+
+export const tenantAuditQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  action: z.string().max(127).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+  format: z.enum(["json", "csv"]).default("json"),
 });

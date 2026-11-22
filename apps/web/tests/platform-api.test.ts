@@ -218,7 +218,7 @@ describe("tenants", () => {
     const detail = await getTenant(tenant!.id);
     expect(detail.tenant.slug).toBe(slugOf("b"));
     expect(detail.settings?.tenantId).toBe(tenant!.id);
-    expect(detail.users).toEqual({ total: 0, active: 0 });
+    expect(detail.users).toEqual({ total: 0, active: 0, members: [] });
   });
 });
 

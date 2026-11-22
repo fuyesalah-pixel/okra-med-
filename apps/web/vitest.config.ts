@@ -3,6 +3,9 @@ import { defineConfig } from "vitest/config";
 
 // Vitest does not read tsconfig `paths`; tests import app modules via "@/...".
 export default defineConfig({
+  // Next compiles JSX automatically; Vitest's esbuild default is classic and
+  // would require React in scope in every component under test.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },

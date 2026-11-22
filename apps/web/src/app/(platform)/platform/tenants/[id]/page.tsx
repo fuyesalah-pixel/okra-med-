@@ -1,5 +1,10 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { TenantDetail } from "@/components/platform/tenants/tenant-detail";
 
-export default function TenantDetailPage() {
-  return <ComingSoon section="tenants" />;
+export default async function TenantDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <TenantDetail id={id} />;
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import {
   modules,
   modulePricing,
@@ -7,12 +7,14 @@ import {
   platformUsers,
   subscriptions,
   subscriptionItems,
+  tenantAuditLog,
   tenantSettings,
   tenantUsers,
   tenants,
   type Db,
 } from "@okra-med/db";
-import { audit, changedFields } from "@/lib/audit";
+import { computeMonthlyBill } from "@/lib/subscription/engine";
+import { audit, auditInTransaction, changedFields } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
 import { withTenantContext } from "@/lib/tenant/context";
 import { platformDb } from "./db";
@@ -23,6 +25,7 @@ import type {
   pricingSchema,
   updateModuleSchema,
   updateTenantSchema,
+  updateTenantSettingsSchema,
 } from "./schemas";
 import type { z } from "zod";
 
@@ -46,9 +49,12 @@ function addDays(date: Date, days: number): Date {
 
 // ---------------------------------------------------------------- tenants
 
+export type TenantSort = "created_desc" | "created_asc" | "name_asc" | "name_desc";
+
 export type ListTenantsInput = {
   status?: TenantStatus;
   search?: string;
+  sort?: TenantSort;
   limit: number;
   offset: number;
 };
@@ -75,10 +81,24 @@ export async function listTenants(input: ListTenantsInput, db: Db = platformDb()
         suspendedReason: tenants.suspendedReason,
         provisionedAt: tenants.provisionedAt,
         createdAt: tenants.createdAt,
+        moduleCount: sql<number>`(
+          select count(distinct si.module_id)::int
+          from subscription_items si
+          join subscriptions s on s.id = si.subscription_id
+          where s.tenant_id = tenants.id and s.status in ('trialing', 'active')
+        )`,
       })
       .from(tenants)
       .where(where)
-      .orderBy(desc(tenants.createdAt))
+      .orderBy(
+        ...(input.sort === "created_asc"
+          ? [asc(tenants.createdAt)]
+          : input.sort === "name_asc"
+            ? [asc(tenants.name)]
+            : input.sort === "name_desc"
+              ? [desc(tenants.name)]
+              : [desc(tenants.createdAt)]),
+      )
       .limit(input.limit)
       .offset(input.offset),
     db.select({ total: count() }).from(tenants).where(where),
@@ -119,20 +139,37 @@ export async function getTenant(id: string, db: Db = platformDb()) {
         .where(eq(subscriptionItems.subscriptionId, subscription.id))
     : [];
 
-  const [[userCount], [activeUserCount]] = await Promise.all([
+  const [[userCount], [activeUserCount], members] = await Promise.all([
     db.select({ n: count() }).from(tenantUsers).where(eq(tenantUsers.tenantId, id)),
     db
       .select({ n: count() })
       .from(tenantUsers)
       .where(and(eq(tenantUsers.tenantId, id), eq(tenantUsers.isActive, true))),
+    db
+      .select({
+        id: tenantUsers.id,
+        email: tenantUsers.email,
+        name: tenantUsers.name,
+        isActive: tenantUsers.isActive,
+      })
+      .from(tenantUsers)
+      .where(eq(tenantUsers.tenantId, id))
+      .orderBy(asc(tenantUsers.createdAt)),
   ]);
+
+  const bill = subscription ? await computeMonthlyBill(subscription.id, db) : null;
 
   return {
     tenant,
     settings: settings ?? null,
     subscription: subscription ?? null,
     subscriptionItems: items,
-    users: { total: Number(userCount?.n ?? 0), active: Number(activeUserCount?.n ?? 0) },
+    bill,
+    users: {
+      total: Number(userCount?.n ?? 0),
+      active: Number(activeUserCount?.n ?? 0),
+      members,
+    },
   };
 }
 
@@ -226,6 +263,106 @@ export async function updateTenant(
   );
 
   return after;
+}
+
+/**
+ * Contact fields live on `tenants`, branding/terminology on `tenant_settings`.
+ * Both are written in one transaction so a Save cannot half-apply, and each row
+ * gets its own audit entry with a field-level diff.
+ */
+export async function updateTenantSettings(
+  id: string,
+  input: z.infer<typeof updateTenantSettingsSchema>,
+  actor: PlatformActor,
+  meta: Meta = {},
+) {
+  const db = platformDb();
+
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(tenants).where(eq(tenants.id, id)).limit(1);
+    if (!before) notFound("Tenant");
+    if (before.status === "archived") {
+      badRequest("TENANT_ARCHIVED", "Archived tenants are read-only");
+    }
+
+    const {
+      contactEmail,
+      contactPhone,
+      country,
+      notes,
+      ...branding
+    } = input;
+
+    const tenantPatch: Record<string, unknown> = {};
+    if (contactEmail !== undefined) tenantPatch.contactEmail = contactEmail;
+    if (contactPhone !== undefined) tenantPatch.contactPhone = contactPhone;
+    if (country !== undefined) tenantPatch.country = country;
+    if (notes !== undefined) tenantPatch.notes = notes;
+
+    let tenantAfter = before;
+    if (Object.keys(tenantPatch).length > 0) {
+      [tenantAfter] = await tx
+        .update(tenants)
+        .set({ ...tenantPatch, updatedAt: new Date() })
+        .where(eq(tenants.id, id))
+        .returning();
+
+      await auditInTransaction(tx as unknown as Db, {
+        tenantId: id,
+        platformActorId: actor.actorId,
+        action: "tenant.update",
+        entityType: "tenant",
+        entityId: id,
+        ...changedFields(
+          before as unknown as Record<string, unknown>,
+          tenantAfter as unknown as Record<string, unknown>,
+        ),
+        correlationId: meta.requestId,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+    }
+
+    const [settingsBefore] = await tx
+      .select()
+      .from(tenantSettings)
+      .where(eq(tenantSettings.tenantId, id))
+      .limit(1);
+
+    const settingsAfter = settingsBefore
+      ? (
+          await tx
+            .update(tenantSettings)
+            .set({ ...branding, updatedAt: new Date() })
+            .where(eq(tenantSettings.tenantId, id))
+            .returning()
+        )[0]
+      : (
+          await tx
+            .insert(tenantSettings)
+            .values({ tenantId: id, ...branding })
+            .returning()
+        )[0];
+
+    if (Object.keys(branding).length > 0) {
+      await auditInTransaction(tx as unknown as Db, {
+        tenantId: id,
+        platformActorId: actor.actorId,
+        action: "tenant.settings.update",
+        entityType: "tenant_settings",
+        entityId: id,
+        ...changedFields(
+          (settingsBefore ?? {}) as unknown as Record<string, unknown>,
+          settingsAfter as unknown as Record<string, unknown>,
+        ),
+        correlationId: meta.requestId,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+    }
+
+    return { tenant: tenantAfter, settings: settingsAfter };
+  });
 }
 
 /** Legal status changes. An archived tenant is terminal — reactivating it would revive billing silently. */
@@ -443,6 +580,66 @@ export async function setModulePricing(
   );
 
   return result.created;
+}
+
+// ---------------------------------------------------------------- audit
+
+export type TenantAuditInput = {
+  from?: string;
+  to?: string;
+  action?: string;
+  limit: number;
+  offset: number;
+};
+
+export async function listTenantAudit(
+  tenantId: string,
+  input: TenantAuditInput,
+  db: Db = platformDb(),
+) {
+  const filters = [eq(tenantAuditLog.tenantId, tenantId)];
+  if (input.from) filters.push(gte(tenantAuditLog.createdAt, new Date(input.from)));
+  if (input.to) filters.push(lte(tenantAuditLog.createdAt, new Date(input.to)));
+  if (input.action) {
+    const term = `%${input.action.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+    filters.push(sql`${tenantAuditLog.action} ILIKE ${term}`);
+  }
+  const where = and(...filters);
+
+  const [items, [totals]] = await Promise.all([
+    db
+      .select({
+        id: tenantAuditLog.id,
+        createdAt: tenantAuditLog.createdAt,
+        action: tenantAuditLog.action,
+        entityType: tenantAuditLog.entityType,
+        entityId: tenantAuditLog.entityId,
+        requestId: tenantAuditLog.correlationId,
+        platformActorName: platformUsers.name,
+        platformActorEmail: platformUsers.email,
+        tenantActorName: tenantUsers.name,
+        tenantActorEmail: tenantUsers.email,
+      })
+      .from(tenantAuditLog)
+      .leftJoin(platformUsers, eq(platformUsers.id, tenantAuditLog.platformActorId))
+      .leftJoin(tenantUsers, eq(tenantUsers.id, tenantAuditLog.actorId))
+      .where(where)
+      .orderBy(desc(tenantAuditLog.createdAt))
+      .limit(input.limit)
+      .offset(input.offset),
+    db.select({ total: count() }).from(tenantAuditLog).where(where),
+  ]);
+
+  return {
+    items: items.map(({ platformActorName, platformActorEmail, tenantActorName, tenantActorEmail, ...row }) => ({
+      ...row,
+      actor: platformActorName ?? tenantActorName ?? "System",
+      actorEmail: platformActorEmail ?? tenantActorEmail ?? null,
+    })),
+    total: Number(totals?.total ?? 0),
+    limit: input.limit,
+    offset: input.offset,
+  };
 }
 
 // ---------------------------------------------------------------- settings

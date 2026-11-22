@@ -318,6 +318,67 @@ export async function renewSubscription(
   return after!;
 }
 
+/**
+ * Replace a subscription's module lines with a new selection.
+ *
+ * Re-prices from the current active catalog and re-snapshots each line, then
+ * deletes the old lines and inserts the new ones in one transaction. Historical
+ * invoices are not affected because each line is a snapshot, but the current
+ * subscription now bills the new selection.
+ */
+export async function replaceSubscriptionModules(
+  subscriptionId: string,
+  moduleSelections: ModuleSelection[],
+  actor: PlatformActor,
+  meta: Meta & { db?: Db } = {},
+) {
+  const db = meta.db ?? platformDb();
+
+  return db.transaction(async (tx) => {
+    const before = await loadSubscription(subscriptionId, tx as unknown as Db);
+    const priced = await priceSelections(tx as unknown as Db, moduleSelections);
+    singleCurrency(priced.map((p) => p.currency));
+
+    await tx.execute(sqlSetTenant(before.tenantId));
+    await tx
+      .delete(subscriptionItems)
+      .where(eq(subscriptionItems.subscriptionId, subscriptionId));
+    await tx.insert(subscriptionItems).values(
+      priced.map((p) => ({
+        tenantId: before.tenantId,
+        subscriptionId,
+        moduleId: p.moduleId,
+        instanceCount: p.count,
+        unitPrice: p.instancePrice,
+        currency: p.currency,
+      })),
+    );
+
+    const [after] = await tx
+      .update(subscriptions)
+      .set({ updatedAt: new Date() })
+      .where(eq(subscriptions.id, subscriptionId))
+      .returning();
+
+    await auditInTransaction(tx as unknown as Db, {
+      tenantId: before.tenantId,
+      platformActorId: actor.actorId,
+      action: "subscription.modules.update",
+      entityType: "subscription",
+      entityId: subscriptionId,
+      before: { modules: moduleSelections.length },
+      after: {
+        modules: priced.map((p) => ({ key: p.key, count: p.count, unitPrice: p.instancePrice })),
+      },
+      correlationId: meta.requestId,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+
+    return after!;
+  });
+}
+
 /** Cancel immediately, with a 7-day grace window before access is cut. */
 export async function cancelSubscription(
   subscriptionId: string,
