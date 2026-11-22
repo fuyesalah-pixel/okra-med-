@@ -377,3 +377,4 @@ describe("dashboard KPIs", () => {
     await db.delete(subscriptions).where(eq(subscriptions.id, sub!.id));
   });
 });
+

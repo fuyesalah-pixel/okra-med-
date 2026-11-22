@@ -283,6 +283,54 @@
       }
     }
   },
+  "wizard": {
+    "title": "New Tenant",
+    "subtitle": "Provision a new clinic with an admin user and subscription",
+    "progress": "Step {step} of {total}",
+    "back": "Back",
+    "next": "Next",
+    "loadingModules": "Loading modules…",
+    "slugTaken": "This slug is already in use",
+    "step1": {
+      "title": "Basic Info",
+      "clinicInfo": "Clinic information",
+      "adminAccount": "Administrator account",
+      "name": "Clinic name",
+      "namePlaceholder": "City General Hospital",
+      "slug": "Slug",
+      "slugHint": "Lowercase letters, numbers and hyphens. 3–30 characters.",
+      "contactEmail": "Contact email",
+      "phone": "Phone",
+      "country": "Country",
+      "adminEmail": "Admin email",
+      "adminPassword": "Admin password",
+      "passwordHint": "Min 12 chars, must include a letter, number and symbol.",
+      "confirmPassword": "Confirm password",
+      "next": "Next — Select Modules"
+    },
+    "step2": {
+      "title": "Modules",
+      "selectModules": "Select modules",
+      "instances": "Instances",
+      "noPricing": "No active price",
+      "atLeastOne": "Select at least one module",
+      "priceSummary": "Price summary",
+      "billingCycle": "Billing cycle",
+      "baseFee": "Base fee",
+      "total": "Monthly total",
+      "discount": "Discount",
+      "noModulesSelected": "No modules selected yet"
+    },
+    "step3": {
+      "title": "Review",
+      "clinicSummary": "Clinic details",
+      "subscriptionSummary": "Subscription",
+      "total": "Monthly total",
+      "trialNotice": "14-day free trial — no charge until {date}",
+      "createTenant": "Create Tenant",
+      "creating": "Creating…"
+    }
+  },
   "tenant": { "dashboard": "Dashboard" },
   "errors": { "notFound": "Not found", "unauthorized": "Unauthorized" }
 }
