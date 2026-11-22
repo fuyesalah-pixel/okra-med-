@@ -50,6 +50,20 @@
       "when": 1795249735070,
       "tag": "0006_phase1_composite_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795249735080,
+      "tag": "0007_platform_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795249735090,
+      "tag": "0008_tenant_auth",
+      "breakpoints": true
     }
   ]
 }

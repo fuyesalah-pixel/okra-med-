@@ -24,6 +24,24 @@ services:
     logging:
       driver: json-file
       options: { "max-size": "10m", "max-file": "3" }
+  # One-shot migration runner. Uses the builder stage because the production
+  # `web` image is Next standalone output and has no pnpm, drizzle-kit or DB
+  # sources. Never started by `up`; deploy.sh runs it explicitly before web.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: builder
+    # DATABASE_URL is the RLS-constrained app role in production; DDL needs the
+    # owner connection, which is the one platform endpoints already use.
+    command:
+      - sh
+      - -c
+      - 'DATABASE_URL="$${PLATFORM_DATABASE_URL:-$$DATABASE_URL}" pnpm --filter @okra-med/db db:migrate'
+    env_file: .env.production
+    depends_on: [postgres]
+    networks: [okra_internal]
+    restart: "no"
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped

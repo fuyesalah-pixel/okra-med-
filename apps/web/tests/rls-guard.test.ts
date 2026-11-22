@@ -19,6 +19,18 @@ export const PLATFORM_SCOPED_TABLES: Record<string, string> = {
     "Platform-wide configuration (base fee, trial length, supported currencies). Not tenant-scoped by design.",
   platform_notifications:
     "Platform-to-tenant announcements authored by the Super Admin, optionally targeted at specific tenants. Not tenant-scoped by design.",
+  platform_sessions:
+    "Better Auth sessions for platform admins. Control-plane only; tenant users have their own auth tables.",
+  platform_accounts:
+    "Better Auth credential/provider accounts for platform admins. Control-plane only. Not tenant-scoped by design.",
+  platform_verifications:
+    "Better Auth email verification and reset tokens for platform admins. Control-plane only. Not tenant-scoped by design.",
+  tenant_sessions:
+    "Better Auth sessions for tenant users. Resolved by opaque token before any tenant context exists, so an app.tenant_id policy would make login impossible. Child of tenant_users via user_id; tenant isolation is enforced when the session's user is resolved to exactly one tenant and compared with the URL slug.",
+  tenant_accounts:
+    "Better Auth credential/provider accounts for tenant users. Read during sign-in before a tenant context exists. Child of tenant_users via user_id; it stores no tenant data and is only reachable through that user.",
+  tenant_verifications:
+    "Better Auth email verification and reset tokens for tenant users. Keyed by identifier, not tenant, and read before login. Carries no tenant data.",
 };
 
 export type TenantTablePolicy = {

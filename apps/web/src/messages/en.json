@@ -1,7 +1,75 @@
 {
   "common": { "loading": "Loading...", "save": "Save", "cancel": "Cancel" },
   "auth": { "login": "Login", "logout": "Logout" },
-  "platform": { "dashboard": "Platform Dashboard" },
+  "platform": {
+    "nav": {
+      "brand": "OkraMed",
+      "dashboard": "Dashboard",
+      "tenants": "Tenants",
+      "modules": "Modules",
+      "pricing": "Pricing",
+      "settings": "Settings",
+      "audit": "Audit",
+      "users": "Users",
+      "notifications": "Notifications",
+      "logout": "Log out",
+      "skipToContent": "Skip to content",
+      "openNavigation": "Open navigation",
+      "closeNavigation": "Close navigation",
+      "navigationMenu": "Navigation menu",
+      "primaryNavigation": "Platform navigation",
+      "sidebar": "Sidebar",
+      "userAvatar": "User avatar",
+      "userMenu": "User menu",
+      "toggleTheme": "Toggle theme",
+      "roleSuperAdmin": "Super Admin",
+      "rolePlatformSupport": "Support"
+    },
+    "header": {
+      "comingSoon": "This section is coming soon.",
+      "comingSoonHint": "Navigation works — this screen is a placeholder until the next sub-prompt."
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "subtitle": "Platform overview",
+      "refresh": "Refresh",
+      "lastUpdatedJustNow": "Last updated just now",
+      "lastUpdatedSeconds": "Last updated {count}s ago",
+      "lastUpdatedMinutes": "Last updated {count}m ago",
+      "kpi": {
+        "totalTenants": "Total Tenants",
+        "newThisMonth": "+{count} this month",
+        "activeSubscriptions": "Active Subscriptions",
+        "subscriptionBreakdown": "{trialing} trialing, {active} active",
+        "mrr": "MRR",
+        "mrrChange": "{value}% vs last month",
+        "trialsEnding": "Trials Ending",
+        "trialsBreakdown": "{today} end today, {week} end this week"
+      },
+      "recentTenants": "Recent Tenants",
+      "trialsEndingSoon": "Trials Ending Soon",
+      "recentActivity": "Recent Activity",
+      "viewAll": "View all",
+      "viewFullAuditLog": "View full audit log",
+      "noTenants": "No tenants yet",
+      "createFirstTenant": "Create the first tenant",
+      "noTrialsEnding": "No trials ending this week",
+      "noActivity": "No platform activity yet",
+      "errorLoading": "Something went wrong loading this section.",
+      "errorDashboard": "The dashboard could not be loaded.",
+      "retry": "Retry",
+      "daysRemaining": "{days} days remaining",
+      "daysShort": "{days}d",
+      "endsToday": "Today",
+      "actorSystem": "System",
+      "status": {
+        "trial": "Trial",
+        "active": "Active",
+        "suspended": "Suspended",
+        "archived": "Archived"
+      }
+    }
+  },
   "tenant": { "dashboard": "Dashboard" },
   "errors": { "notFound": "Not found", "unauthorized": "Unauthorized" }
 }

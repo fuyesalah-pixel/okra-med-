@@ -1,7 +1,8 @@
 import { createDb } from "./index";
-import { platformUsers, tenants, tenantSettings, tenantUsers, permissions, roles, rolePermissions, userRoles, modules, modulePricing, subscriptions, subscriptionItems, platformSettings } from "./schema";
+import { platformUsers, platformAccounts, tenants, tenantSettings, tenantUsers, tenantAccounts, permissions, roles, rolePermissions, userRoles, modules, modulePricing, subscriptions, subscriptionItems, platformSettings } from "./schema";
 import { hash } from "argon2";
-import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import "dotenv/config";
 
 const db = createDb(process.env.DATABASE_URL!);
@@ -44,6 +45,26 @@ async function main() {
   } else {
     superAdminId = existingSuper[0].id;
     console.log("✅ Super admin exists");
+  }
+
+  // Better Auth stores the password credential on `platform_accounts`, not on
+  // `platform_users`. Without this row the seeded admin cannot sign in even
+  // though the user and hash exist.
+  const existingAccount = await db
+    .select({ id: platformAccounts.id })
+    .from(platformAccounts)
+    .where(
+      and(eq(platformAccounts.userId, superAdminId), eq(platformAccounts.providerId, "credential")),
+    );
+  if (existingAccount.length === 0) {
+    await db.insert(platformAccounts).values({
+      id: randomUUID(),
+      accountId: superAdminId,
+      providerId: "credential",
+      userId: superAdminId,
+      password: passwordHash,
+    });
+    console.log("✅ Super admin credential created");
   }
 
   // tenant
@@ -91,6 +112,25 @@ async function main() {
     tenantUserId = inserted[0].id;
   } else {
     tenantUserId = existingTenantUser[0].id;
+  }
+
+  // Better Auth stores the tenant credential on `tenant_accounts`. Without this
+  // row the seeded tenant admin cannot sign in even though the user exists.
+  const existingTenantAccount = await db
+    .select({ id: tenantAccounts.id })
+    .from(tenantAccounts)
+    .where(
+      and(eq(tenantAccounts.userId, tenantUserId), eq(tenantAccounts.providerId, "credential")),
+    );
+  if (existingTenantAccount.length === 0) {
+    await db.insert(tenantAccounts).values({
+      id: randomUUID(),
+      accountId: tenantUserId,
+      providerId: "credential",
+      userId: tenantUserId,
+      password: tenantAdminHash,
+    });
+    console.log("✅ Tenant admin credential created");
   }
 
   // permissions catalog

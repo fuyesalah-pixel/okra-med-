@@ -7,10 +7,18 @@ git pull origin main
 # There is no host-side build step: running pnpm on the VPS would require
 # node + pnpm installed there, produce a redundant build, and add ~2 min.
 
-# Start postgres, redis, and caddy if they aren't already running,
-# then rebuild and restart only the web container.
+# Start postgres, redis, and caddy if they aren't already running.
 docker compose -f docker-compose.prod.yml up -d postgres redis caddy
-docker compose -f docker-compose.prod.yml up -d --no-deps --build web
+
+# Apply migrations BEFORE the new web container starts. Without this a deploy
+# that ships a schema change looks healthy (the health probe only checks the
+# process and an existing DB connection) while the product fails at runtime.
+# `set -e` aborts here, leaving the previous web container serving.
+docker compose -f docker-compose.prod.yml build migrate web
+docker compose -f docker-compose.prod.yml run --rm migrate
+
+# Rebuild and restart only the web container.
+docker compose -f docker-compose.prod.yml up -d --no-deps web
 docker image prune -f
 
 # Probe from *inside* the web container. docker-compose.prod.yml publishes no port

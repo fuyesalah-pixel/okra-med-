@@ -55,13 +55,25 @@ clinic cannot be silently revived into billing.
 
 ```json
 {
+  "generatedAt": "2026-11-22T10:00:00.000Z",
   "tenants": { "total": 0, "byStatus": { "trial": 0, "active": 0, "suspended": 0, "archived": 0 },
-               "trialsExpiringIn7Days": 0, "recent": [] },
-  "revenue": { "currency": "ETB", "mrr": 0, "arr": 0, "byCurrency": [] },
+               "createdThisMonth": 0,
+               "trialsExpiringIn7Days": 0, "trialsEndingToday": 0,
+               "trialsEndingSoon": [{ "id": "…", "name": "…", "slug": "…", "trialEndsAt": "…" }],
+               "recent": [{ "id": "…", "name": "…", "slug": "…", "status": "trial", "createdAt": "…" }] },
+  "subscriptions": { "active": 0, "trialing": 0, "total": 0 },
+  "revenue": { "currency": "ETB", "mrr": 0, "arr": 0, "mrrChangePct": null, "byCurrency": [] },
+  "recentActivity": [{ "id": "…", "action": "tenant.create", "entityType": "tenant",
+                       "entityId": "…", "createdAt": "…", "actor": "Platform Admin" }],
   "modules": { "total": 10, "active": 10 },
   "users":   { "total": 0 }
 }
 ```
+
+`recent` and `trialsEndingSoon` are capped at 10 rows, `recentActivity` at 10
+audit rows. `mrrChangePct` is `null` when there is no prior-month baseline; the
+comparison counts lines that existed before the current calendar month, so it is
+a directional trend rather than an invoice ledger.
 
 Money is in minor units (ETB santim). MRR normalises each subscription by its
 billing cycle (`monthly` ×1, `six_months` ÷6, `annual` ÷12) and is grouped by

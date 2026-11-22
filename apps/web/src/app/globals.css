@@ -1,14 +1,117 @@
 @import "tailwindcss";
+
+/* Explicit sources: auto-detection scans from the repo root and misses the
+   workspace's source tree in this monorepo. */
+@source "../../src/**/*.{ts,tsx,mdx}";
+
 :root {
+  /* Base */
   --background: #ffffff;
   --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  /* Brand */
   --primary: #0f172a;
-  --secondary: #64748b;
+  --primary-foreground: #f8fafc;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
   --accent: #3b82f6;
+  --accent-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+
+  /* Semantic */
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #3b82f6;
+
+  /* Status */
+  --success: #16a34a;
+  --success-surface: #dcfce7;
+  --success-surface-foreground: #166534;
+  --warning: #d97706;
+  --warning-surface: #fef3c7;
+  --warning-surface-foreground: #92400e;
+  --destructive-surface: #fee2e2;
+  --destructive-surface-foreground: #991b1b;
+  --info: #2563eb;
+  --info-surface: #dbeafe;
+  --info-surface-foreground: #1e40af;
+
+  /* Sidebar */
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-muted: #94a3b8;
+  --sidebar-active: #1e293b;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-border: #1e293b;
+
   --radius: 0.5rem;
 }
+
 .dark {
   --background: #0f172a;
   --foreground: #f8fafc;
+  --card: #1e293b;
+  --card-foreground: #f8fafc;
+  --popover: #1e293b;
+  --popover-foreground: #f8fafc;
+  --primary: #f8fafc;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #3b82f6;
+  --accent-foreground: #ffffff;
+  --border: #1e293b;
+  --input: #1e293b;
+  --sidebar: #020617;
+  --sidebar-active: #0f172a;
+  --sidebar-border: #0f172a;
+
+  --success: #4ade80;
+  --success-surface: #052e16;
+  --success-surface-foreground: #86efac;
+  --warning: #fbbf24;
+  --warning-surface: #451a03;
+  --warning-surface-foreground: #fcd34d;
+  --destructive-surface: #450a0a;
+  --destructive-surface-foreground: #fca5a5;
+  --info: #60a5fa;
+  --info-surface: #172554;
+  --info-surface-foreground: #93c5fd;
 }
-body { background: var(--background); color: var(--foreground); }
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Skip-to-content */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.skip-to-content:focus {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  width: auto;
+  height: auto;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: var(--radius);
+  outline: 2px solid var(--ring);
+}

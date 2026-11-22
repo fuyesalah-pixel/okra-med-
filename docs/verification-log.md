@@ -284,3 +284,91 @@ stay in history as evidence.
 - [ ] Set 4 GitHub secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `HEALTH_URL`) at
       https://github.com/fuyesalah-pixel/okra-med-/settings/secrets/actions
 - [ ] Verify automated deploy: push a trivial commit → watch Deploy workflow → confirm green
+
+## Phase 1 — Prompt 4.1 Closure (2026-11-22)
+
+Four blockers from conditional acceptance.
+
+### Tenant auth (was SCHEMA_MISMATCH)
+
+- **Missing tables:** `tenant_sessions`, `tenant_accounts`, `tenant_verifications`;
+  `tenant_users` was also missing the `email_verified` / `image` columns Better Auth reads.
+- **Migration:** `0008_tenant_auth.sql` (journal idx 8). Auth tables intentionally have
+  `user_id` (FK → `tenant_users`) instead of `tenant_id`; they are allowlisted in
+  `tests/rls-guard.test.ts` with justification because they are read before a tenant
+  context exists. Isolation is enforced in `decideTenantAccess`.
+- **Adapter:** `auth.tenant.ts` now maps user/session/account/verification and uses
+  `PLATFORM_DATABASE_URL` (RLS-bypassing owner) for credential lookup; with `okra_app`,
+  `tenant_users` is RLS-forced and every login would see zero rows.
+- **Cookie bug found during the fix:** Better Auth 1.7 ignores `session.cookieName`, so
+  platform and tenant auth were both writing `okra.session_token` and overwriting each
+  other. Both instances now set `advanced.cookies.session_token.name`
+  (`okra-platform-session`, `okra-tenant-session`). Existing platform sessions are
+  invalidated by the rename; users sign in again.
+- **Seed:** creates a `tenant_accounts` credential row (idempotent; verified by running
+  seed twice, still 1 account).
+- **Provisioning:** `provisionTenant` writes the credential row in the same transaction.
+- **Guarded route:** `/[slug]/dashboard` resolves the session's tenant and 404s on a slug
+  mismatch; unauthenticated → `/[slug]/login`. `/[slug]` redirects to the dashboard.
+
+Verification (real server on :3100):
+
+| Check | Result |
+| --- | --- |
+| `GET /demo-clinic/dashboard` unauthenticated | `307` → `/demo-clinic/login` |
+| `POST /api/tenant-auth/sign-in/email` (demo admin) | `200`, cookie `okra-tenant-session` |
+| `GET /demo-clinic/dashboard` with cookie | `200`, renders Demo Clinic |
+| `GET /tenant-b-verify/dashboard` with demo cookie | `404` |
+| `POST /api/platform-auth/sign-in/email` | `200`, cookie `okra-platform-session` |
+| `GET /platform/dashboard` with platform cookie | `200` |
+| Server log / `tenant_sessions` | no errors, 1 session row |
+
+Break-it: removed the `tenantSlug !== slug` comparison in `decideTenantAccess` →
+`tenant-auth.test.ts` 1 failed / 5 passed (only the cross-tenant test). Restored → 6/6.
+
+### test:rls, lint, suites
+
+`okra_app` is `rolsuper = f` in the verification DB (created with the same grants as CI).
+
+| Command | Database role | Result |
+| --- | --- | --- |
+| `pnpm test:rls` | `okra_app` | **9/9 ✅** |
+| `pnpm test:platform` | owner (`okra`) | **33/33 ✅** (15 API + 9 platform auth + 6 tenant auth + 3 KPI) |
+| `pnpm test:provisioning` | `okra_app` / owner | **7/7 ✅** |
+| `pnpm lint` | — | **clean ✅** |
+| `pnpm --filter @okra-med/web exec tsc --noEmit` | — | **clean ✅** |
+| `next build` | — | compile + typecheck + static generation ✅; fails only at the known Windows standalone symlink copy (`EPERM`) |
+
+Local role setup (once per database, as owner):
+
+```sh
+psql "$PLATFORM_DATABASE_URL" -c "CREATE ROLE okra_app LOGIN PASSWORD 'okra_app';"
+psql "$PLATFORM_DATABASE_URL" -c "GRANT USAGE ON SCHEMA public TO okra_app;"
+psql "$PLATFORM_DATABASE_URL" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO okra_app;"
+```
+
+`pnpm test` via turbo still depends on `build`, so it cannot complete on Windows for the
+standalone-symlink reason above; the three suites were run directly instead. CI is Linux.
+
+### Deploy auto-migrate
+
+`deploy.sh` now builds a one-shot `migrate` compose service (builder stage, because the
+runtime web image is Next standalone and has no pnpm/drizzle-kit/sources), runs it, and
+only then restarts `web`. It uses `PLATFORM_DATABASE_URL` for DDL because the app role is
+RLS-constrained. A failed migration aborts the deploy before the new web container starts.
+
+### Production migration — NOT APPLIED (blocked)
+
+No VPS/SSH access from this environment. After this branch is deployed (or by running the
+commands on the VPS), `0008` and the seed credential row still need applying:
+
+```sh
+cd /opt/okra-med
+docker compose -f docker-compose.prod.yml build migrate web
+docker compose -f docker-compose.prod.yml run --rm migrate
+docker compose -f docker-compose.prod.yml run --rm migrate \
+  sh -c 'DATABASE_URL="$PLATFORM_DATABASE_URL" pnpm --filter @okra-med/db db:seed'
+docker compose -f docker-compose.prod.yml up -d --no-deps web
+```
+
+Then verify `https://okra.mekatanker.shop/platform/login` and `/demo-clinic/login`.

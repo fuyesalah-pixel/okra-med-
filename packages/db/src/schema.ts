@@ -14,9 +14,12 @@ export const notificationSeverityEnum = pgEnum("notification_severity", ["info",
 export const platformUsers = pgTable("platform_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
-  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  /** Legacy column: Better Auth stores the credential hash in platform_accounts.password. */
+  passwordHash: varchar("password_hash", { length: 255 }).notNull().default(""),
   name: varchar("name", { length: 255 }).notNull(),
   role: platformUserRoleEnum("role").notNull().default("platform_support"),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
   twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -24,6 +27,56 @@ export const platformUsers = pgTable("platform_users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------- Better Auth storage (platform control plane) ----------
+// IDs are `text` because Better Auth generates opaque string ids for these
+// models; only platform_users.id is a database-generated uuid.
+
+export const platformSessions = pgTable("platform_sessions", {
+  id: text("id").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  token: text("token").notNull().unique(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => platformUsers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index("platform_sessions_user_idx").on(t.userId),
+}));
+
+export const platformAccounts = pgTable("platform_accounts", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => platformUsers.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index("platform_accounts_user_idx").on(t.userId),
+}));
+
+export const platformVerifications = pgTable("platform_verifications", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  identifierIdx: index("platform_verifications_identifier_idx").on(t.identifier),
+}));
 
 export const tenants = pgTable("tenants", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -156,15 +209,19 @@ export const platformNotifications = pgTable("platform_notifications", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ---------- Tenant tables (ALL have tenant_id) ----------
+// ---------- Tenant tables (tenant-scoped unless noted) ----------
 
 export const tenantUsers = pgTable("tenant_users", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   email: varchar("email", { length: 255 }).notNull(),
-  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  /** Legacy column: Better Auth stores the credential hash in tenant_accounts.password. */
+  passwordHash: varchar("password_hash", { length: 255 }).notNull().default(""),
   name: varchar("name", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 31 }),
+  /** Read by Better Auth; unused by the app's own UI today. */
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
   isActive: boolean("is_active").notNull().default(true),
   twoFactorSecret: varchar("two_factor_secret", { length: 255 }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -173,6 +230,56 @@ export const tenantUsers = pgTable("tenant_users", {
 }, (t) => ({
   tenantEmailUnique: uniqueIndex("tenant_users_tenant_email_uq").on(t.tenantId, t.email),
   tenantIdx: index("tenant_users_tenant_idx").on(t.tenantId),
+}));
+
+// ---------- Better Auth storage (tenant-facing) ----------
+// No tenant_id on purpose: auth resolves the user before a tenant context
+// exists. See 0008_tenant_auth.sql and the allowlist in rls-guard.test.ts.
+
+export const tenantSessions = pgTable("tenant_sessions", {
+  id: text("id").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  token: text("token").notNull().unique(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => tenantUsers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index("tenant_sessions_user_idx").on(t.userId),
+}));
+
+export const tenantAccounts = pgTable("tenant_accounts", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => tenantUsers.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index("tenant_accounts_user_idx").on(t.userId),
+}));
+
+export const tenantVerifications = pgTable("tenant_verifications", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  identifierIdx: index("tenant_verifications_identifier_idx").on(t.identifier),
 }));
 
 export const roles = pgTable("roles", {

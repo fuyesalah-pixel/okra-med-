@@ -10,6 +10,7 @@ import {
   roles,
   subscriptions,
   subscriptionItems,
+  tenantAccounts,
   tenantSettings,
   tenantUsers,
   tenants,
@@ -183,6 +184,17 @@ export async function provisionTenant(
         isActive: true,
       })
       .returning();
+
+    // Better Auth reads credentials from tenant_accounts, not the legacy
+    // tenant_users.password_hash column. Without this row a freshly
+    // provisioned tenant's admin cannot sign in.
+    await tx.insert(tenantAccounts).values({
+      id: randomUUID(),
+      accountId: adminUser!.id,
+      providerId: "credential",
+      userId: adminUser!.id,
+      password: passwordHash,
+    });
 
     const [adminRole] = await tx
       .insert(roles)

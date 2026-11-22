@@ -2,7 +2,9 @@ import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   modules,
   modulePricing,
+  platformAuditLog,
   platformSettings,
+  platformUsers,
   subscriptions,
   subscriptionItems,
   tenantSettings,
@@ -504,39 +506,90 @@ export async function dashboard(db: Db = platformDb()) {
       else 1
     end`;
 
-  const [byStatus, [moduleCounts], [userCounts], [trialExpiring], recent] = await Promise.all([
-      db
-        .select({ status: tenants.status, n: count() })
-        .from(tenants)
-        .groupBy(tenants.status),
-      db
-        .select({
-          total: count(),
-          active: sql<number>`count(*) filter (where ${modules.isActive})::int`,
-        })
-        .from(modules),
-      db.select({ total: count() }).from(tenantUsers),
-      db
-        .select({ n: count() })
-        .from(tenants)
-        .where(
-          and(
-            eq(tenants.status, "trial"),
-            sql`${tenants.trialEndsAt} between now() and now() + interval '7 days'`,
-          ),
-        ),
-      db
-        .select({
-          id: tenants.id,
-          name: tenants.name,
-          slug: tenants.slug,
-          status: tenants.status,
-          createdAt: tenants.createdAt,
-        })
-        .from(tenants)
-        .orderBy(desc(tenants.createdAt))
-        .limit(5),
-    ]);
+  const mrrAmount = sql<number>`coalesce(round(sum(${subscriptionItems.instanceCount} * ${subscriptionItems.unitPrice}::numeric / ${cycleDivisor})), 0)::int`;
+
+  // Trials are counted from the start of today so a trial that expired earlier
+  // this morning still appears in "ending today" instead of silently vanishing
+  // until a daily job flips its status.
+  const trialWindow = sql`${tenants.trialEndsAt} >= date_trunc('day', now()) and ${tenants.trialEndsAt} < now() + interval '7 days'`;
+
+  const [
+    byStatus,
+    [moduleCounts],
+    [userCounts],
+    [subscriptionCounts],
+    [tenantCounts],
+    [trialCounts],
+    recent,
+    trialsEndingSoon,
+    recentActivity,
+  ] = await Promise.all([
+    db
+      .select({ status: tenants.status, n: count() })
+      .from(tenants)
+      .groupBy(tenants.status),
+    db
+      .select({
+        total: count(),
+        active: sql<number>`count(*) filter (where ${modules.isActive})::int`,
+      })
+      .from(modules),
+    db.select({ total: count() }).from(tenantUsers),
+    db
+      .select({
+        active: sql<number>`count(*) filter (where ${subscriptions.status} = 'active')::int`,
+        trialing: sql<number>`count(*) filter (where ${subscriptions.status} = 'trialing')::int`,
+      })
+      .from(subscriptions),
+    db
+      .select({
+        createdThisMonth: sql<number>`count(*) filter (where ${tenants.createdAt} >= date_trunc('month', now()))::int`,
+      })
+      .from(tenants),
+    db
+      .select({
+        soon: sql<number>`count(*) filter (where ${trialWindow})::int`,
+        today: sql<number>`count(*) filter (where date_trunc('day', ${tenants.trialEndsAt}) = date_trunc('day', now()))::int`,
+      })
+      .from(tenants)
+      .where(eq(tenants.status, "trial")),
+    db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        status: tenants.status,
+        createdAt: tenants.createdAt,
+      })
+      .from(tenants)
+      .orderBy(desc(tenants.createdAt))
+      .limit(10),
+    db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        slug: tenants.slug,
+        trialEndsAt: tenants.trialEndsAt,
+      })
+      .from(tenants)
+      .where(and(eq(tenants.status, "trial"), trialWindow))
+      .orderBy(asc(tenants.trialEndsAt))
+      .limit(10),
+    db
+      .select({
+        id: platformAuditLog.id,
+        action: platformAuditLog.action,
+        entityType: platformAuditLog.entityType,
+        entityId: platformAuditLog.entityId,
+        createdAt: platformAuditLog.createdAt,
+        actorName: platformUsers.name,
+        actorEmail: platformUsers.email,
+      })
+      .from(platformAuditLog)
+      .leftJoin(platformUsers, eq(platformUsers.id, platformAuditLog.actorId))
+      .orderBy(desc(platformAuditLog.createdAt))
+      .limit(10),
+  ]);
 
   // Currency is carried by module_pricing, not by the subscription_items snapshot.
   // The partial unique index `module_pricing_active_module_uq` guarantees exactly
@@ -544,10 +597,7 @@ export async function dashboard(db: Db = platformDb()) {
   // a module whose price was deactivated contributes 0 to MRR until it is priced
   // again — acceptable for the control plane, and a signal that something is wrong.
   const mrrByCurrency = await db
-    .select({
-      currency: modulePricing.currency,
-      amount: sql<number>`coalesce(round(sum(${subscriptionItems.instanceCount} * ${subscriptionItems.unitPrice}::numeric / ${cycleDivisor})), 0)::int`,
-    })
+    .select({ currency: modulePricing.currency, amount: mrrAmount })
     .from(subscriptionItems)
     .innerJoin(subscriptions, eq(subscriptions.id, subscriptionItems.subscriptionId))
     .innerJoin(modulePricing, eq(modulePricing.moduleId, subscriptionItems.moduleId))
@@ -559,12 +609,32 @@ export async function dashboard(db: Db = platformDb()) {
     )
     .groupBy(modulePricing.currency);
 
+  // "Last month" MRR is approximated by items and subscriptions that already
+  // existed before the current calendar month. Seat/price changes are not
+  // versioned per month, so this is a directional trend, not an invoice ledger.
+  const priorMrrByCurrency = await db
+    .select({ currency: modulePricing.currency, amount: mrrAmount })
+    .from(subscriptionItems)
+    .innerJoin(subscriptions, eq(subscriptions.id, subscriptionItems.subscriptionId))
+    .innerJoin(modulePricing, eq(modulePricing.moduleId, subscriptionItems.moduleId))
+    .where(
+      and(
+        inArray(subscriptions.status, ["active", "trialing"]),
+        eq(modulePricing.isActive, true),
+        sql`${subscriptionItems.createdAt} < date_trunc('month', now())`,
+        sql`${subscriptions.startsAt} < date_trunc('month', now())`,
+      ),
+    )
+    .groupBy(modulePricing.currency);
+
   const statusMap = Object.fromEntries(byStatus.map((r) => [r.status, Number(r.n)])) as Record<
     string,
     number
   >;
   const totalTenants = Object.values(statusMap).reduce((a, b) => a + b, 0);
   const primary = mrrByCurrency.find((r) => r.currency === "ETB") ?? mrrByCurrency[0];
+  const priorPrimary = priorMrrByCurrency.find((r) => r.currency === primary?.currency);
+  const previousMrr = priorPrimary?.amount ?? 0;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -576,15 +646,35 @@ export async function dashboard(db: Db = platformDb()) {
         suspended: statusMap.suspended ?? 0,
         archived: statusMap.archived ?? 0,
       },
-      trialsExpiringIn7Days: Number(trialExpiring?.n ?? 0),
+      createdThisMonth: Number(tenantCounts?.createdThisMonth ?? 0),
+      trialsExpiringIn7Days: Number(trialCounts?.soon ?? 0),
+      trialsEndingToday: Number(trialCounts?.today ?? 0),
+      trialsEndingSoon,
       recent,
+    },
+    subscriptions: {
+      active: Number(subscriptionCounts?.active ?? 0),
+      trialing: Number(subscriptionCounts?.trialing ?? 0),
+      total: Number(subscriptionCounts?.active ?? 0) + Number(subscriptionCounts?.trialing ?? 0),
     },
     revenue: {
       currency: primary?.currency ?? "ETB",
       mrr: primary?.amount ?? 0,
       arr: (primary?.amount ?? 0) * 12,
+      mrrChangePct:
+        primary && previousMrr > 0
+          ? Math.round(((primary.amount - previousMrr) / previousMrr) * 1000) / 10
+          : null,
       byCurrency: mrrByCurrency,
     },
+    recentActivity: recentActivity.map((row) => ({
+      id: row.id,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      createdAt: row.createdAt,
+      actor: row.actorName ?? row.actorEmail ?? null,
+    })),
     modules: {
       total: Number(moduleCounts?.total ?? 0),
       active: Number(moduleCounts?.active ?? 0),

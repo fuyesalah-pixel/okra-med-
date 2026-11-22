@@ -9,6 +9,7 @@ import {
   roles,
   subscriptionItems,
   subscriptions,
+  tenantAccounts,
   tenantAuditLog,
   tenantSettings,
   tenantUsers,
@@ -161,6 +162,15 @@ describe("provisionTenant", () => {
     expect(admin?.email).toBe(emailOf("full"));
     expect(admin?.id).toBe(result.adminUserId);
     expect(admin?.passwordHash.startsWith("$argon2id$")).toBe(true);
+
+    // Better Auth signs in through tenant_accounts; the legacy hash alone is
+    // not a working credential.
+    const [credential] = await platform
+      .select()
+      .from(tenantAccounts)
+      .where(eq(tenantAccounts.userId, result.adminUserId));
+    expect(credential?.providerId).toBe("credential");
+    expect(credential?.password?.startsWith("$argon2id$")).toBe(true);
 
     const assigned = await platform
       .select({ roleName: roles.name })
