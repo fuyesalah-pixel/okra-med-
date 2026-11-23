@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { createDb, type Db } from "@okra-med/db";
 import Redis from "ioredis";
-import pkg from "../../../package.json";
+import pkg from "../../../../package.json";
 
 /**
  * Liveness + dependency probe used by:
