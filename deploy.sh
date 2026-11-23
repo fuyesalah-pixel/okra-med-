@@ -17,8 +17,9 @@ docker compose -f docker-compose.prod.yml up -d postgres redis caddy
 docker compose -f docker-compose.prod.yml build migrate web
 docker compose -f docker-compose.prod.yml run --rm migrate
 
-# Rebuild and restart only the web container.
-docker compose -f docker-compose.prod.yml up -d --no-deps web
+# Rebuild and restart only the web container. --force-recreate ensures the
+# container is replaced even when the image tag (latest) is unchanged.
+docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate --build web
 docker image prune -f
 
 # Probe from *inside* the web container. docker-compose.prod.yml publishes no port
