@@ -63,7 +63,7 @@ export async function GET() {
       status: ok ? "ok" : "degraded",
       db: dbOk ? "ok" : "down",
       redis: redisOk ? "ok" : "down",
-      version: "0.1.0",
+      version: "0.2.0",
       uptime: Math.floor((Date.now() - started) / 1000),
     },
     { status: ok ? 200 : 503 },
