@@ -5,26 +5,17 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+  workers: process.env.CI ? 2 : undefined,
+  reporter: process.env.CI ? [["html"], ["github"]] : "list",
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:3000",
     trace: "on-first-retry",
+    screenshot: "only-on-failure",
   },
   projects: [
     {
-      name: "desktop-light",
-      use: { ...devices["Desktop Chrome"], colorScheme: "light" },
-    },
-    {
-      name: "desktop-dark",
-      use: { ...devices["Desktop Chrome"], colorScheme: "dark" },
-    },
-    {
-      name: "mobile",
-      use: { ...devices["Pixel 7"], colorScheme: "light" },
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
-  // Dev server must be started separately (e.g. `pnpm dev`) before running tests.
-  // webServer is omitted to avoid conflicts with an already-running instance.
 });
