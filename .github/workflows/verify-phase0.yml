@@ -67,3 +67,64 @@ jobs:
           DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
           PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
       - run: pnpm build
+
+  e2e:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: okra
+          POSTGRES_PASSWORD: okra
+          POSTGRES_DB: okramed
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @okra-med/web db:migrate
+        env:
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+          MIGRATION_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+      - run: pnpm --filter @okra-med/web db:seed
+        env:
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+          SEED_SUPER_ADMIN_EMAIL: admin@okramed.com
+          SEED_SUPER_ADMIN_PASSWORD: CiOnlyPassword123!
+          SEED_TENANT_SLUG: demo-clinic
+          SEED_TENANT_ADMIN_EMAIL: admin@demo-clinic.com
+          SEED_TENANT_ADMIN_PASSWORD: CiOnlyPassword123!
+      - name: Create non-superuser app role
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql -U okra -d okramed -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE okra_app LOGIN PASSWORD 'okra_app';" \
+            -c "GRANT USAGE ON SCHEMA public TO okra_app;" \
+            -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO okra_app;"
+      - run: pnpm --filter @okra-med/web build
+      - run: pnpm --filter @okra-med/web start &
+        env:
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+          BETTER_AUTH_URL: http://localhost:3000
+          BETTER_AUTH_SECRET: ci-only-secret-do-not-use-in-production
+      - run: npx wait-on http://localhost:3000/api/health -t 60000
+      - run: pnpm --filter @okra-med/web test:e2e
+        env:
+          BASE_URL: http://localhost:3000
+          DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
