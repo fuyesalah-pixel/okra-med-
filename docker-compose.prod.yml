@@ -32,12 +32,14 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       target: builder
-    # DATABASE_URL is the RLS-constrained app role in production; DDL needs the
-    # owner connection, which is the one platform endpoints already use.
+    # DATABASE_URL is the RLS-constrained app role in production, and the
+    # platform role is the same privileges plus BYPASSRLS — neither may run DDL.
+    # Migrations therefore use MIGRATION_DATABASE_URL (owner), falling back to
+    # DATABASE_URL only where those are the same role (CI).
     command:
       - sh
       - -c
-      - 'DATABASE_URL="$${PLATFORM_DATABASE_URL:-$$DATABASE_URL}" pnpm --filter @okra-med/db db:migrate'
+      - 'DATABASE_URL="$${MIGRATION_DATABASE_URL:-$$DATABASE_URL}" pnpm --filter @okra-med/db db:migrate'
     env_file: .env.production
     depends_on: [postgres]
     networks: [okra_internal]

@@ -36,6 +36,7 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: pnpm test:config
       - run: pnpm --filter @okra-med/web build
       - run: pnpm db:migrate
         env:

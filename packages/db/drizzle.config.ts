@@ -4,5 +4,9 @@ export default defineConfig({
   schema: "./src/schema.ts",
   out: "./migrations",
   dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL! },
+  // Migrations need DDL, which the app roles do not have. Prefer the owner
+  // connection when it is configured; CI sets only DATABASE_URL (owner).
+  dbCredentials: {
+    url: (process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL)!,
+  },
 });

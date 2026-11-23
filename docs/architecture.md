@@ -17,6 +17,43 @@ reaching for `PLATFORM_DATABASE_URL` in a tenant-scoped context, stop and ask wh
 
 CI points all three at the owner because it is a throwaway database.
 
+### Local dev on Windows: two Postgres servers
+
+This dev machine runs two servers that are not interchangeable:
+
+| Port | Server | Use |
+|---|---|---|
+| `:5432` | Native Windows Postgres | Other projects, plus the legacy `okramed` database. **Do not** migrate, seed, or run okra-med tests against it. It has no `okra_app` / `okra_platform` roles. |
+| `:5433` | Docker Postgres from `docker-compose.yml`, published by the `okramed-pgproxy` container | The okra-med dev database. |
+
+`:5433` exists because the native install already owns `:5432` on this host.
+`apps/web/.env.local` (gitignored) must point at it:
+
+```
+DATABASE_URL=postgresql://okra_app:...@localhost:5433/okramed
+PLATFORM_DATABASE_URL=postgresql://okra_platform:...@localhost:5433/okramed
+MIGRATION_DATABASE_URL=postgresql://okra:...@localhost:5433/okramed
+```
+
+If a suite fails with an RLS denial, `relation ... does not exist`, or a missing
+role, check which server it actually reached before changing code:
+
+```
+psql "$DATABASE_URL" -c 'select current_database(), inet_server_port(), current_user'
+```
+
+### Who runs migrations
+
+`MIGRATION_DATABASE_URL` is the only connection with DDL. The `migrate` service
+in `docker-compose.prod.yml` resolves its `DATABASE_URL` from
+`MIGRATION_DATABASE_URL` (falling back to `DATABASE_URL` for CI, where both are
+the owner), and `drizzle.config.ts` prefers it directly. `deploy.sh` runs
+`run --rm migrate` before `up -d web`, so a failed migration aborts the deploy
+while the previous container keeps serving.
+
+Never give `okra_app` or `okra_platform` DDL, and never let a request path use
+the migration URL.
+
 ## Audit trails
 
 - Tenant-user actions → `tenant_audit_log` (`actor_id` → `tenant_users`).
