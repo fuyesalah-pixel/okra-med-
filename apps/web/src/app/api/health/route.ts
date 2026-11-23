@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { createDb, type Db } from "@okra-med/db";
 import Redis from "ioredis";
+import pkg from "../../../package.json";
 
 /**
  * Liveness + dependency probe used by:
@@ -63,7 +64,7 @@ export async function GET() {
       status: ok ? "ok" : "degraded",
       db: dbOk ? "ok" : "down",
       redis: redisOk ? "ok" : "down",
-      version: "0.2.0",
+      version: pkg.version,
       uptime: Math.floor((Date.now() - started) / 1000),
     },
     { status: ok ? 200 : 503 },
