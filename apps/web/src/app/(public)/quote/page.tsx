@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { NextIntlClientProvider } from "next-intl";
 import { Loader2 } from "lucide-react";
 import { ModuleSelector, type PricedModule, type ModuleSelection } from "@/components/platform/wizard/module-selector";
@@ -85,12 +86,12 @@ function QuotePageInner() {
             </div>
             <span className="text-sm font-semibold">OkraMed</span>
           </div>
-          <a
+          <Link
             href="/platform/tenants/new"
             className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
           >
             Get Started
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -144,12 +145,12 @@ function QuotePageInner() {
                       Discount applied for {billingCycle === "six_months" ? "6-month" : "annual"} billing
                     </p>
                   )}
-                  <a
+                  <Link
                     href="/platform/tenants/new"
                     className="mt-4 inline-block rounded-lg bg-[var(--accent)] px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
                   >
                     Start Free Trial →
-                  </a>
+                  </Link>
                 </div>
               )}
             </div>
