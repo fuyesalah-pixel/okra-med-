@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { PlatformUsers } from "@/components/platform/users/platform-users";
 
 export default function UsersPage() {
-  return <ComingSoon section="users" />;
+  return <PlatformUsers />;
 }

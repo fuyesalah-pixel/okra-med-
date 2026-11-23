@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { NotificationsClient } from "@/components/platform/notifications/notifications-client";
 
 export default function NotificationsPage() {
-  return <ComingSoon section="notifications" />;
+  return <NotificationsClient />;
 }

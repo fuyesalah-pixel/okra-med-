@@ -66,6 +66,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://okra_app:okra_app@localhost:5432/okramed
           PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+      - run: pnpm test:pages
+        env:
+          DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
+          PLATFORM_DATABASE_URL: postgresql://okra:okra@localhost:5432/okramed
       - name: Check deploy configuration
         # Secrets cannot be referenced in `if:` directly, hence the job-level env.
         run: |

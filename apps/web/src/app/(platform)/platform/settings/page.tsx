@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { PlatformSettingsForm } from "@/components/platform/settings/platform-settings-form";
 
 export default function SettingsPage() {
-  return <ComingSoon section="settings" />;
+  return <PlatformSettingsForm />;
 }

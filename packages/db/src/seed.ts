@@ -263,6 +263,8 @@ async function main() {
     ["trial_days", 14, "Length of a new tenant's trial period"],
     ["default_currency", "ETB", "Currency used when a module has no explicit price"],
     ["supported_currencies", ["ETB", "USD", "EUR", "SAR"], "Currencies tenants may be billed in"],
+    ["platform_name", "OkraMed", "Name shown in tenant-facing UI"],
+    ["support_email", "support@okramed.com", "Support contact shown to tenants"],
   ];
   for (const [key, value, description] of platformSettingDefs) {
     await db.insert(platformSettings).values({ key, value, description }).onConflictDoNothing();

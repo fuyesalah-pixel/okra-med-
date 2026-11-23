@@ -154,3 +154,54 @@ export const tenantAuditQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   format: z.enum(["json", "csv"]).default("json"),
 });
+
+/** Platform-wide audit viewer (Prompt 4.4). Filters match the dropdowns on the page. */
+export const platformAuditQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  actorId: z.string().uuid().optional(),
+  action: z.string().max(127).optional(),
+  entityType: z.string().max(63).optional(),
+  requestId: z.string().max(63).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+  format: z.enum(["json", "csv"]).default("json"),
+});
+
+export const platformRoles = ["super_admin", "platform_support"] as const;
+
+export const createPlatformUserSchema = z.object({
+  email: z.string().email().max(255),
+  name: z.string().min(2).max(255),
+  role: z.enum(platformRoles).default("platform_support"),
+});
+
+export const updatePlatformUserSchema = z
+  .object({
+    role: z.enum(platformRoles).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
+
+export const notificationSeverities = ["info", "warning", "critical"] as const;
+
+/**
+ * An empty `audience` means every tenant (including ones created later). A
+ * non-empty list is an explicit allowlist of tenant ids.
+ */
+export const createNotificationSchema = z.object({
+  title: z.string().min(1).max(100),
+  body: z.string().min(1).max(500),
+  severity: z.enum(notificationSeverities).default("info"),
+  audience: z.array(z.string().uuid()).max(100).default([]),
+  expiresAt: z.string().datetime().nullable().optional(),
+});
+
+/**
+ * One Save button updates several keys. Sending them together keeps the form
+ * from half-applying when one key is rejected, and keeps one audit row per key
+ * in the same transaction.
+ */
+export const updatePlatformSettingsSchema = z.object({
+  values: z.record(z.string().min(1).max(100), z.unknown()),
+});

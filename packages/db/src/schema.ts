@@ -128,6 +128,8 @@ export const modulePricing = pgTable("module_pricing", {
   instancePrice: integer("instance_price").notNull(),
   currency: varchar("currency", { length: 5 }).notNull().default("ETB"),
   isActive: boolean("is_active").notNull().default(true),
+  /** Admin who set the price. Null for prices seeded before 0009. */
+  createdBy: uuid("created_by").references(() => platformUsers.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   // One active price per module; superseded rows stay for price history.
@@ -194,6 +196,8 @@ export const platformSettings = pgTable("platform_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull(),
   description: text("description"),
+  /** Last admin to change the value. Null for seeded settings. */
+  updatedBy: uuid("updated_by").references(() => platformUsers.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

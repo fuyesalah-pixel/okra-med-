@@ -11,6 +11,7 @@
     "test:platform": "pnpm --filter @okra-med/web exec vitest run --no-file-parallelism tests/platform-api.test.ts tests/platform-auth.test.ts tests/dashboard-kpi.test.ts tests/tenant-auth.test.ts tests/tenant-detail.test.ts tests/tenant-list.test.tsx",
     "test:provisioning": "pnpm --filter @okra-med/web exec vitest run tests/provisioning.spec.ts",
     "test:config": "pnpm --filter @okra-med/web exec vitest run tests/migration-config.test.ts",
+    "test:pages": "pnpm --filter @okra-med/web exec vitest run tests/modules-page.test.tsx tests/pricing-page.test.tsx tests/settings-page.test.tsx tests/audit-page.test.ts tests/users-page.test.ts tests/notifications-page.test.ts",
     "db:generate": "pnpm --filter @okra-med/db generate",
     "db:migrate": "pnpm --filter @okra-med/db migrate",
     "db:seed": "pnpm --filter @okra-med/db seed"

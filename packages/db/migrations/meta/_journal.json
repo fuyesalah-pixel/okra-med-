@@ -64,6 +64,13 @@
       "when": 1795249735090,
       "tag": "0008_tenant_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795249735100,
+      "tag": "0009_platform_actors",
+      "breakpoints": true
     }
   ]
 }

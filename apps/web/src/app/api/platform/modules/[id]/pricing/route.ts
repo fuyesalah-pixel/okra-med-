@@ -1,7 +1,7 @@
 import { readJson, requestMeta, wrapRoute } from "@/lib/http";
-import { requirePlatformRole, SUPER_ADMIN_ROLES } from "@/lib/platform/auth";
+import { READ_ROLES, requirePlatformRole, SUPER_ADMIN_ROLES } from "@/lib/platform/auth";
 import { pricingSchema } from "@/lib/platform/schemas";
-import { setModulePricing } from "@/lib/platform/service";
+import { modulePricingHistory, setModulePricing } from "@/lib/platform/service";
 
 export const dynamic = "force-dynamic";
 
@@ -15,4 +15,10 @@ export const PUT = wrapRoute<{ id: string }>(async (req, { params, requestId }) 
   const input = pricingSchema.parse(await readJson(req));
   const pricing = await setModulePricing(params.id, input, actor, { requestId, ...requestMeta(req) });
   return Response.json({ data: pricing });
+});
+
+/** Every price ever set for the module, newest first, for the history row. */
+export const GET = wrapRoute<{ id: string }>(async (_req, { params }) => {
+  await requirePlatformRole(READ_ROLES);
+  return Response.json({ data: await modulePricingHistory(params.id) });
 });

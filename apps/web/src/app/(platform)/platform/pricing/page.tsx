@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { PricingTable } from "@/components/platform/pricing/pricing-table";
 
 export default function PricingPage() {
-  return <ComingSoon section="pricing" />;
+  return <PricingTable />;
 }

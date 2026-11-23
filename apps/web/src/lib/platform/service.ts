@@ -3,6 +3,8 @@ import {
   modules,
   modulePricing,
   platformAuditLog,
+  platformNotifications,
+  platformSessions,
   platformSettings,
   platformUsers,
   subscriptions,
@@ -458,14 +460,17 @@ export async function listModules(db: Db = platformDb()) {
       priceId: modulePricing.id,
       instancePrice: modulePricing.instancePrice,
       currency: modulePricing.currency,
+      pricingCreatedAt: modulePricing.createdAt,
     })
     .from(modules)
     .leftJoin(modulePricing, and(eq(modulePricing.moduleId, modules.id), eq(modulePricing.isActive, true)))
     .orderBy(asc(modules.displayOrder), asc(modules.name));
 
-  return rows.map(({ priceId, instancePrice, currency, ...m }) => ({
+  return rows.map(({ priceId, instancePrice, currency, pricingCreatedAt, ...m }) => ({
     ...m,
-    pricing: priceId ? { id: priceId, instancePrice, currency } : null,
+    pricing: priceId
+      ? { id: priceId, instancePrice, currency, updatedAt: pricingCreatedAt }
+      : null,
   }));
 }
 
@@ -558,6 +563,7 @@ export async function setModulePricing(
         moduleId,
         instancePrice: input.instancePrice,
         currency: input.currency,
+        createdBy: actor.actorId,
       })
       .returning();
 
@@ -645,7 +651,19 @@ export async function listTenantAudit(
 // ---------------------------------------------------------------- settings
 
 export async function listSettings(db: Db = platformDb()) {
-  return db.select().from(platformSettings).orderBy(asc(platformSettings.key));
+  return db
+    .select({
+      key: platformSettings.key,
+      value: platformSettings.value,
+      description: platformSettings.description,
+      updatedAt: platformSettings.updatedAt,
+      updatedBy: platformSettings.updatedBy,
+      updatedByName: platformUsers.name,
+      updatedByEmail: platformUsers.email,
+    })
+    .from(platformSettings)
+    .leftJoin(platformUsers, eq(platformUsers.id, platformSettings.updatedBy))
+    .orderBy(asc(platformSettings.key));
 }
 
 export async function updateSetting(
@@ -663,6 +681,7 @@ export async function updateSetting(
     .set({
       value: input.value as never,
       ...(input.description !== undefined ? { description: input.description } : {}),
+      updatedBy: actor.actorId,
       updatedAt: new Date(),
     })
     .where(eq(platformSettings.key, key))
@@ -684,6 +703,442 @@ export async function updateSetting(
   );
 
   return after;
+}
+
+// ------------------------------------------------------- module admin (4.4)
+
+/**
+ * Modules are retired by deactivating them; deletion is only for a module that
+ * was created by mistake. Any subscription line item — current or historical —
+ * blocks the delete, because `subscription_items.module_id` must keep pointing
+ * at a real module for old invoices to be reproducible.
+ */
+export async function deleteModule(id: string, actor: PlatformActor, meta: Meta = {}) {
+  const db = platformDb();
+  const [before] = await db.select().from(modules).where(eq(modules.id, id)).limit(1);
+  if (!before) notFound("Module");
+
+  const [used] = await db
+    .select({ n: count() })
+    .from(subscriptionItems)
+    .where(eq(subscriptionItems.moduleId, id));
+  const uses = Number(used?.n ?? 0);
+  if (uses > 0) {
+    throw new AppError(
+      "MODULE_IN_USE",
+      `"${before.name}" is on ${uses} subscription(s). Deactivate it instead of deleting.`,
+      409,
+    );
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(modulePricing).where(eq(modulePricing.moduleId, id));
+    await tx.delete(modules).where(eq(modules.id, id));
+  });
+
+  await audit(
+    {
+      actorId: actor.actorId,
+      action: "module.delete",
+      entityType: "module",
+      entityId: id,
+      before,
+      correlationId: meta.requestId,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    },
+    db,
+  );
+}
+
+/** Every price row ever set for a module, newest first, with the admin who set it. */
+export async function modulePricingHistory(moduleId: string, db: Db = platformDb()) {
+  const [module] = await db
+    .select({ id: modules.id, name: modules.name })
+    .from(modules)
+    .where(eq(modules.id, moduleId))
+    .limit(1);
+  if (!module) notFound("Module");
+
+  return db
+    .select({
+      id: modulePricing.id,
+      instancePrice: modulePricing.instancePrice,
+      currency: modulePricing.currency,
+      isActive: modulePricing.isActive,
+      createdAt: modulePricing.createdAt,
+      actorName: platformUsers.name,
+      actorEmail: platformUsers.email,
+    })
+    .from(modulePricing)
+    .leftJoin(platformUsers, eq(platformUsers.id, modulePricing.createdBy))
+    .where(eq(modulePricing.moduleId, moduleId))
+    .orderBy(desc(modulePricing.createdAt));
+}
+
+// ---------------------------------------------------- platform audit (4.4)
+
+export type PlatformAuditInput = {
+  from?: string;
+  to?: string;
+  actorId?: string;
+  action?: string;
+  entityType?: string;
+  requestId?: string;
+  limit: number;
+  offset: number;
+};
+
+/**
+ * The control-plane audit viewer. Facets come back with every page so the
+ * dropdowns are populated from what is actually in the table rather than a
+ * hardcoded list that drifts from the actions the service layer writes.
+ */
+export async function listPlatformAudit(input: PlatformAuditInput, db: Db = platformDb()) {
+  const filters = [];
+  if (input.from) filters.push(gte(platformAuditLog.createdAt, new Date(input.from)));
+  if (input.to) filters.push(lte(platformAuditLog.createdAt, new Date(input.to)));
+  if (input.actorId) filters.push(eq(platformAuditLog.actorId, input.actorId));
+  if (input.action) filters.push(eq(platformAuditLog.action, input.action));
+  if (input.entityType) filters.push(eq(platformAuditLog.entityType, input.entityType));
+  if (input.requestId) {
+    const term = `%${input.requestId.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+    filters.push(sql`coalesce(${platformAuditLog.correlationId}, '') ILIKE ${term}`);
+  }
+  const where = filters.length ? and(...filters) : undefined;
+
+  const [items, [totals], actions, entityTypes, actors] = await Promise.all([
+    db
+      .select({
+        id: platformAuditLog.id,
+        createdAt: platformAuditLog.createdAt,
+        action: platformAuditLog.action,
+        entityType: platformAuditLog.entityType,
+        entityId: platformAuditLog.entityId,
+        requestId: platformAuditLog.correlationId,
+        before: platformAuditLog.before,
+        after: platformAuditLog.after,
+        actorName: platformUsers.name,
+        actorEmail: platformUsers.email,
+      })
+      .from(platformAuditLog)
+      .leftJoin(platformUsers, eq(platformUsers.id, platformAuditLog.actorId))
+      .where(where)
+      .orderBy(desc(platformAuditLog.createdAt))
+      .limit(input.limit)
+      .offset(input.offset),
+    db.select({ total: count() }).from(platformAuditLog).where(where),
+    db
+      .selectDistinct({ value: platformAuditLog.action })
+      .from(platformAuditLog)
+      .orderBy(asc(platformAuditLog.action)),
+    db
+      .selectDistinct({ value: platformAuditLog.entityType })
+      .from(platformAuditLog)
+      .orderBy(asc(platformAuditLog.entityType)),
+    db
+      .select({ id: platformUsers.id, name: platformUsers.name, email: platformUsers.email })
+      .from(platformUsers)
+      .orderBy(asc(platformUsers.name)),
+  ]);
+
+  return {
+    items: items.map((row) => ({
+      ...row,
+      actor: row.actorName ?? "System",
+    })),
+    total: Number(totals?.total ?? 0),
+    limit: input.limit,
+    offset: input.offset,
+    facets: {
+      actions: actions.map((row) => row.value),
+      entityTypes: entityTypes.map((row) => row.value),
+      actors,
+    },
+  };
+}
+
+// ------------------------------------------------------ platform users (4.4)
+
+export async function listPlatformUsers(db: Db = platformDb()) {
+  return db
+    .select({
+      id: platformUsers.id,
+      email: platformUsers.email,
+      name: platformUsers.name,
+      role: platformUsers.role,
+      isActive: platformUsers.isActive,
+      lastActiveAt: platformUsers.lastActiveAt,
+      lastLoginAt: platformUsers.lastLoginAt,
+      createdAt: platformUsers.createdAt,
+    })
+    .from(platformUsers)
+    .orderBy(asc(platformUsers.name), asc(platformUsers.email));
+}
+
+/**
+ * Creates the directory entry only. Credentials are not issued here: an invite
+ * must go through the auth provider, and no mail transport is configured yet.
+ * The UI states that explicitly rather than pretending an email was sent.
+ */
+export async function createPlatformUser(
+  input: { email: string; name: string; role: "super_admin" | "platform_support" },
+  actor: PlatformActor,
+  meta: Meta = {},
+) {
+  const db = platformDb();
+  const email = input.email.toLowerCase();
+  const [clash] = await db
+    .select({ id: platformUsers.id })
+    .from(platformUsers)
+    .where(eq(platformUsers.email, email))
+    .limit(1);
+  if (clash) throw new AppError("USER_EMAIL_TAKEN", `${email} already has an account`, 409);
+
+  const [created] = await db
+    .insert(platformUsers)
+    .values({ email, name: input.name, role: input.role, passwordHash: "" })
+    .returning();
+
+  await audit(
+    {
+      actorId: actor.actorId,
+      action: "platform_user.create",
+      entityType: "platform_user",
+      entityId: created!.id,
+      after: created,
+      metadata: { email, role: input.role },
+      correlationId: meta.requestId,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    },
+    db,
+  );
+  return created!;
+}
+
+/**
+ * Role changes and deactivation. Three invariants are enforced here rather than
+ * in the page, because the API is the real boundary: an admin cannot change
+ * their own role or deactivate themselves, and the platform cannot lose its last
+ * active super admin.
+ */
+export async function updatePlatformUser(
+  id: string,
+  input: { role?: "super_admin" | "platform_support"; isActive?: boolean },
+  actor: PlatformActor,
+  meta: Meta = {},
+) {
+  const db = platformDb();
+  const [before] = await db.select().from(platformUsers).where(eq(platformUsers.id, id)).limit(1);
+  if (!before) notFound("Platform user");
+
+  if (id === actor.actorId && input.role && input.role !== before.role) {
+    throw new AppError("CANNOT_CHANGE_OWN_ROLE", "You cannot change your own role", 400);
+  }
+  if (id === actor.actorId && input.isActive === false) {
+    throw new AppError("CANNOT_DEACTIVATE_SELF", "You cannot deactivate your own account", 400);
+  }
+
+  const losesSuperAdmin =
+    before.role === "super_admin" &&
+    before.isActive &&
+    ((input.role && input.role !== "super_admin") || input.isActive === false);
+  if (losesSuperAdmin) {
+    const [remaining] = await db
+      .select({ n: count() })
+      .from(platformUsers)
+      .where(and(eq(platformUsers.role, "super_admin"), eq(platformUsers.isActive, true)));
+    if (Number(remaining?.n ?? 0) <= 1) {
+      throw new AppError("LAST_SUPER_ADMIN", "At least one active super admin is required", 409);
+    }
+  }
+
+  const [after] = await db
+    .update(platformUsers)
+    .set({ ...input, updatedAt: new Date() })
+    .where(eq(platformUsers.id, id))
+    .returning();
+
+  // A deactivated admin must lose existing sessions now, not at token expiry.
+  if (input.isActive === false) {
+    await db.delete(platformSessions).where(eq(platformSessions.userId, id));
+  }
+
+  const diff = changedFields(
+    before as unknown as Record<string, unknown>,
+    after as unknown as Record<string, unknown>,
+  );
+  await audit(
+    {
+      actorId: actor.actorId,
+      action: "platform_user.update",
+      entityType: "platform_user",
+      entityId: id,
+      ...diff,
+      correlationId: meta.requestId,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    },
+    db,
+  );
+  return after!;
+}
+
+// ------------------------------------------------------- notifications (4.4)
+
+export type CreateNotificationInput = {
+  title: string;
+  body: string;
+  severity: "info" | "warning" | "critical";
+  /** Empty = every tenant. */
+  audience: string[];
+  expiresAt?: string | null;
+};
+
+export async function listPlatformNotifications(db: Db = platformDb()) {
+  const rows = await db
+    .select({
+      id: platformNotifications.id,
+      title: platformNotifications.title,
+      body: platformNotifications.body,
+      severity: platformNotifications.severity,
+      audience: platformNotifications.audience,
+      publishedAt: platformNotifications.publishedAt,
+      expiresAt: platformNotifications.expiresAt,
+      createdAt: platformNotifications.createdAt,
+      createdByName: platformUsers.name,
+    })
+    .from(platformNotifications)
+    .leftJoin(platformUsers, eq(platformUsers.id, platformNotifications.createdBy))
+    .orderBy(desc(platformNotifications.createdAt));
+
+  const ids = [...new Set(rows.flatMap((row) => row.audience))];
+  const recipients = ids.length
+    ? await db
+        .select({ id: tenants.id, name: tenants.name, slug: tenants.slug })
+        .from(tenants)
+        .where(inArray(tenants.id, ids))
+    : [];
+  const byId = new Map(recipients.map((tenant) => [tenant.id, tenant]));
+
+  return rows.map(({ createdByName, ...row }) => ({
+    ...row,
+    createdBy: createdByName ?? "System",
+    allTenants: row.audience.length === 0,
+    recipients: row.audience
+      .map((id) => byId.get(id))
+      .filter((tenant): tenant is { id: string; name: string; slug: string } => Boolean(tenant)),
+    // There is no delivery worker yet: publishing is synchronous, so a row is
+    // either queued (published_at null) or sent. "failed" is reserved for the
+    // worker that will replace this.
+    status: row.publishedAt ? ("sent" as const) : ("queued" as const),
+  }));
+}
+
+/**
+ * Publishing is synchronous: the notification is visible to tenants as soon as
+ * this returns. The audience is validated against real tenants so a typo cannot
+ * silently broadcast to nobody.
+ */
+export async function createPlatformNotification(
+  input: CreateNotificationInput,
+  actor: PlatformActor,
+  meta: Meta = {},
+) {
+  const db = platformDb();
+  const audience = [...new Set(input.audience)];
+
+  if (audience.length) {
+    const found = await db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(inArray(tenants.id, audience));
+    if (found.length !== audience.length) {
+      const known = new Set(found.map((row) => row.id));
+      const unknown = audience.filter((id) => !known.has(id));
+      throw new AppError(
+        "UNKNOWN_TENANT",
+        `Unknown tenant id(s): ${unknown.join(", ")}`,
+        422,
+      );
+    }
+  }
+
+  const [created] = await db
+    .insert(platformNotifications)
+    .values({
+      title: input.title,
+      body: input.body,
+      severity: input.severity,
+      audience,
+      publishedAt: new Date(),
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      createdBy: actor.actorId,
+    })
+    .returning();
+
+  await audit(
+    {
+      actorId: actor.actorId,
+      action: "notification.create",
+      entityType: "platform_notification",
+      entityId: created!.id,
+      after: created,
+      metadata: { audience, severity: input.severity, all_tenants: audience.length === 0 },
+      correlationId: meta.requestId,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    },
+    db,
+  );
+
+  return created!;
+}
+
+/** The batch settings save: one transaction, one audit row per changed key. */
+export async function updateSettings(
+  values: Record<string, unknown>,
+  actor: PlatformActor,
+  meta: Meta = {},
+) {
+  const db = platformDb();
+  const keys = Object.keys(values);
+  if (keys.length === 0) badRequest("VALIDATION", "No settings to update");
+
+  const before = await db.select().from(platformSettings).where(inArray(platformSettings.key, keys));
+  if (before.length !== keys.length) {
+    const known = new Set(before.map((row) => row.key));
+    const unknown = keys.filter((key) => !known.has(key));
+    throw new AppError("UNKNOWN_SETTING", `Unknown setting key(s): ${unknown.join(", ")}`, 422);
+  }
+  const beforeByKey = new Map(before.map((row) => [row.key, row]));
+
+  const updated = await db.transaction(async (tx) => {
+    const rows = [];
+    for (const key of keys) {
+      const [row] = await tx
+        .update(platformSettings)
+        .set({ value: values[key] as never, updatedBy: actor.actorId, updatedAt: new Date() })
+        .where(eq(platformSettings.key, key))
+        .returning();
+      rows.push(row!);
+      await auditInTransaction(tx as unknown as Db, {
+        actorId: actor.actorId,
+        action: "platform_setting.update",
+        entityType: "platform_setting",
+        entityId: key,
+        before: beforeByKey.get(key),
+        after: row,
+        correlationId: meta.requestId,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+    }
+    return rows;
+  });
+
+  return updated;
 }
 
 // ---------------------------------------------------------------- dashboard

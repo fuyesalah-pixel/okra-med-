@@ -1,5 +1,5 @@
-import { ComingSoon } from "@/components/platform/coming-soon";
+import { AuditLog } from "@/components/platform/audit/audit-log";
 
 export default function AuditPage() {
-  return <ComingSoon section="audit" />;
+  return <AuditLog />;
 }

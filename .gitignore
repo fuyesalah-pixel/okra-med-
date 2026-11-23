@@ -10,3 +10,6 @@ dist/
 out/
 next-env.d.ts
 *.tsbuildinfo
+.turbo/cache/
+apps/web/playwright-report/
+apps/web/test-results/
